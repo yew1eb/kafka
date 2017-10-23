@@ -33,8 +33,6 @@ public class Bytes implements Comparable<Bytes> {
     private int hashCode;
 
     public static Bytes wrap(byte[] bytes) {
-        if (bytes == null)
-            return null;
         return new Bytes(bytes);
     }
 

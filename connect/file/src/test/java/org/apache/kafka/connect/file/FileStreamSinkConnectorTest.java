@@ -16,12 +16,14 @@
  */
 package org.apache.kafka.connect.file;
 
+import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.connect.connector.ConnectorContext;
 import org.apache.kafka.connect.sink.SinkConnector;
-import org.easymock.EasyMockSupport;
 import org.junit.Before;
 import org.junit.Test;
+import org.powermock.api.easymock.PowerMock;
 
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -29,9 +31,14 @@ import java.util.Map;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 
-public class FileStreamSinkConnectorTest extends EasyMockSupport {
+public class FileStreamSinkConnectorTest {
 
     private static final String MULTIPLE_TOPICS = "test1,test2";
+    private static final String[] MULTIPLE_TOPICS_LIST
+            = MULTIPLE_TOPICS.split(",");
+    private static final List<TopicPartition> MULTIPLE_TOPICS_PARTITIONS = Arrays.asList(
+            new TopicPartition("test1", 1), new TopicPartition("test2", 2)
+    );
     private static final String FILENAME = "/afilename";
 
     private FileStreamSinkConnector connector;
@@ -41,7 +48,7 @@ public class FileStreamSinkConnectorTest extends EasyMockSupport {
     @Before
     public void setup() {
         connector = new FileStreamSinkConnector();
-        ctx = createMock(ConnectorContext.class);
+        ctx = PowerMock.createMock(ConnectorContext.class);
         connector.initialize(ctx);
 
         sinkProperties = new HashMap<>();
@@ -51,7 +58,7 @@ public class FileStreamSinkConnectorTest extends EasyMockSupport {
 
     @Test
     public void testSinkTasks() {
-        replayAll();
+        PowerMock.replayAll();
 
         connector.start(sinkProperties);
         List<Map<String, String>> taskConfigs = connector.taskConfigs(1);
@@ -64,12 +71,12 @@ public class FileStreamSinkConnectorTest extends EasyMockSupport {
             assertEquals(FILENAME, taskConfigs.get(0).get(FileStreamSinkConnector.FILE_CONFIG));
         }
 
-        verifyAll();
+        PowerMock.verifyAll();
     }
 
     @Test
     public void testSinkTasksStdout() {
-        replayAll();
+        PowerMock.replayAll();
 
         sinkProperties.remove(FileStreamSourceConnector.FILE_CONFIG);
         connector.start(sinkProperties);
@@ -77,16 +84,16 @@ public class FileStreamSinkConnectorTest extends EasyMockSupport {
         assertEquals(1, taskConfigs.size());
         assertNull(taskConfigs.get(0).get(FileStreamSourceConnector.FILE_CONFIG));
 
-        verifyAll();
+        PowerMock.verifyAll();
     }
 
     @Test
     public void testTaskClass() {
-        replayAll();
+        PowerMock.replayAll();
 
         connector.start(sinkProperties);
         assertEquals(FileStreamSinkTask.class, connector.taskClass());
 
-        verifyAll();
+        PowerMock.verifyAll();
     }
 }

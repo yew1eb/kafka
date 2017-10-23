@@ -63,38 +63,43 @@ public interface Producer<K, V> extends Closeable {
     void abortTransaction() throws ProducerFencedException;
 
     /**
-     * See {@link KafkaProducer#send(ProducerRecord)}
+     * Send the given record asynchronously and return a future which will eventually contain the response information.
+     *
+     * @param record The record to send
+     * @return A future which will eventually contain the response information
      */
-    Future<RecordMetadata> send(ProducerRecord<K, V> record);
+    public Future<RecordMetadata> send(ProducerRecord<K, V> record);
 
     /**
-     * See {@link KafkaProducer#send(ProducerRecord, Callback)}
+     * Send a record and invoke the given callback when the record has been acknowledged by the server
      */
-    Future<RecordMetadata> send(ProducerRecord<K, V> record, Callback callback);
+    public Future<RecordMetadata> send(ProducerRecord<K, V> record, Callback callback);
 
     /**
-     * See {@link KafkaProducer#flush()}
+     * Flush any accumulated records from the producer. Blocks until all sends are complete.
      */
-    void flush();
+    public void flush();
 
     /**
-     * See {@link KafkaProducer#partitionsFor(String)}
+     * Get a list of partitions for the given topic for custom partition assignment. The partition metadata will change
+     * over time so this list should not be cached.
      */
-    List<PartitionInfo> partitionsFor(String topic);
+    public List<PartitionInfo> partitionsFor(String topic);
 
     /**
-     * See {@link KafkaProducer#metrics()}
+     * Return a map of metrics maintained by the producer
      */
-    Map<MetricName, ? extends Metric> metrics();
+    public Map<MetricName, ? extends Metric> metrics();
 
     /**
-     * See {@link KafkaProducer#close()}
+     * Close this producer
      */
-    void close();
+    public void close();
 
     /**
-     * See {@link KafkaProducer#close(long, TimeUnit)}
+     * Tries to close the producer cleanly within the specified timeout. If the close does not complete within the
+     * timeout, fail any pending send requests and force close the producer.
      */
-    void close(long timeout, TimeUnit unit);
+    public void close(long timeout, TimeUnit unit);
 
 }

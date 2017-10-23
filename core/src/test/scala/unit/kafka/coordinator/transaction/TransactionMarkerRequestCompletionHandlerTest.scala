@@ -20,7 +20,7 @@ import java.{lang, util}
 
 import org.apache.kafka.clients.ClientResponse
 import org.apache.kafka.common.TopicPartition
-import org.apache.kafka.common.protocol.{ApiKeys, Errors}
+import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.requests.{RequestHeader, TransactionResult, WriteTxnMarkersRequest, WriteTxnMarkersResponse}
 import org.apache.kafka.common.utils.Utils
 import org.easymock.{EasyMock, IAnswer}
@@ -71,8 +71,7 @@ class TransactionMarkerRequestCompletionHandlerTest {
       producerId, producerEpoch, txnResult, coordinatorEpoch, Set[TopicPartition](topicPartition)))
     EasyMock.replay(markerChannelManager)
 
-    handler.onComplete(new ClientResponse(new RequestHeader(ApiKeys.PRODUCE, 0, "client", 1),
-      null, null, 0, 0, true, null, null))
+    handler.onComplete(new ClientResponse(new RequestHeader(0, 0, "client", 1), null, null, 0, 0, true, null, null))
 
     EasyMock.verify(markerChannelManager)
   }
@@ -85,8 +84,7 @@ class TransactionMarkerRequestCompletionHandlerTest {
     val response = new WriteTxnMarkersResponse(new java.util.HashMap[java.lang.Long, java.util.Map[TopicPartition, Errors]]())
 
     try {
-      handler.onComplete(new ClientResponse(new RequestHeader(ApiKeys.PRODUCE, 0, "client", 1),
-        null, null, 0, 0, false, null, response))
+      handler.onComplete(new ClientResponse(new RequestHeader(0, 0, "client", 1), null, null, 0, 0, false, null, response))
       fail("should have thrown illegal argument exception")
     } catch {
       case _: IllegalStateException => // ok
@@ -202,9 +200,8 @@ class TransactionMarkerRequestCompletionHandlerTest {
       producerId, producerEpoch, txnResult, coordinatorEpoch, Set[TopicPartition](topicPartition)))
     EasyMock.replay(markerChannelManager)
 
-    val response = new WriteTxnMarkersResponse(createProducerIdErrorMap(error))
-    handler.onComplete(new ClientResponse(new RequestHeader(ApiKeys.PRODUCE, 0, "client", 1),
-      null, null, 0, 0, false, null, response))
+    val response = new WriteTxnMarkersResponse(createPidErrorMap(error))
+    handler.onComplete(new ClientResponse(new RequestHeader(0, 0, "client", 1), null, null, 0, 0, false, null, response))
 
     assertEquals(txnMetadata.topicPartitions, mutable.Set[TopicPartition](topicPartition))
     EasyMock.verify(markerChannelManager)
@@ -213,10 +210,9 @@ class TransactionMarkerRequestCompletionHandlerTest {
   private def verifyThrowIllegalStateExceptionOnError(error: Errors) = {
     mockCache()
 
-    val response = new WriteTxnMarkersResponse(createProducerIdErrorMap(error))
+    val response = new WriteTxnMarkersResponse(createPidErrorMap(error))
     try {
-      handler.onComplete(new ClientResponse(new RequestHeader(ApiKeys.PRODUCE, 0, "client", 1),
-        null, null, 0, 0, false, null, response))
+      handler.onComplete(new ClientResponse(new RequestHeader(0, 0, "client", 1), null, null, 0, 0, false, null, response))
       fail("should have thrown illegal state exception")
     } catch {
       case _: IllegalStateException => // ok
@@ -235,9 +231,8 @@ class TransactionMarkerRequestCompletionHandlerTest {
       .once()
     EasyMock.replay(markerChannelManager)
 
-    val response = new WriteTxnMarkersResponse(createProducerIdErrorMap(error))
-    handler.onComplete(new ClientResponse(new RequestHeader(ApiKeys.PRODUCE, 0, "client", 1),
-      null, null, 0, 0, false, null, response))
+    val response = new WriteTxnMarkersResponse(createPidErrorMap(error))
+    handler.onComplete(new ClientResponse(new RequestHeader(0, 0, "client", 1), null, null, 0, 0, false, null, response))
 
     assertTrue(txnMetadata.topicPartitions.isEmpty)
     assertTrue(completed)
@@ -255,15 +250,14 @@ class TransactionMarkerRequestCompletionHandlerTest {
       .once()
     EasyMock.replay(markerChannelManager)
 
-    val response = new WriteTxnMarkersResponse(createProducerIdErrorMap(error))
-    handler.onComplete(new ClientResponse(new RequestHeader(ApiKeys.PRODUCE, 0, "client", 1),
-      null, null, 0, 0, false, null, response))
+    val response = new WriteTxnMarkersResponse(createPidErrorMap(error))
+    handler.onComplete(new ClientResponse(new RequestHeader(0, 0, "client", 1), null, null, 0, 0, false, null, response))
 
     assertTrue(removed)
   }
 
 
-  private def createProducerIdErrorMap(errors: Errors) = {
+  private def createPidErrorMap(errors: Errors) = {
     val pidMap = new java.util.HashMap[lang.Long, util.Map[TopicPartition, Errors]]()
     val errorsMap = new util.HashMap[TopicPartition, Errors]()
     errorsMap.put(topicPartition, errors)

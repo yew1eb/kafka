@@ -22,13 +22,14 @@ import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.network.NetworkReceive;
 import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.types.Struct;
+import org.apache.kafka.common.record.RecordBatch;
 import org.apache.kafka.common.record.MemoryRecords;
 import org.apache.kafka.common.requests.ApiVersionsResponse;
 import org.apache.kafka.common.requests.MetadataRequest;
 import org.apache.kafka.common.requests.ProduceRequest;
 import org.apache.kafka.common.requests.ResponseHeader;
-import org.apache.kafka.common.utils.LogContext;
 import org.apache.kafka.common.utils.MockTime;
+import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.test.DelayedReceive;
 import org.apache.kafka.test.MockSelector;
 import org.apache.kafka.test.TestUtils;
@@ -64,19 +65,19 @@ public class NetworkClientTest {
     private NetworkClient createNetworkClient() {
         return new NetworkClient(selector, metadata, "mock", Integer.MAX_VALUE,
                 reconnectBackoffMsTest, reconnectBackoffMaxTest,
-                64 * 1024, 64 * 1024, requestTimeoutMs, time, true, new ApiVersions(), new LogContext());
+                64 * 1024, 64 * 1024, requestTimeoutMs, time, true, new ApiVersions());
     }
 
     private NetworkClient createNetworkClientWithStaticNodes() {
         return new NetworkClient(selector, new ManualMetadataUpdater(Arrays.asList(node)),
                 "mock-static", Integer.MAX_VALUE, 0, 0, 64 * 1024, 64 * 1024, requestTimeoutMs,
-                time, true, new ApiVersions(), new LogContext());
+                time, true, new ApiVersions());
     }
 
     private NetworkClient createNetworkClientWithNoVersionDiscovery() {
         return new NetworkClient(selector, metadata, "mock", Integer.MAX_VALUE,
                 reconnectBackoffMsTest, reconnectBackoffMaxTest,
-                64 * 1024, 64 * 1024, requestTimeoutMs, time, false, new ApiVersions(), new LogContext());
+                64 * 1024, 64 * 1024, requestTimeoutMs, time, false, new ApiVersions());
     }
 
     @Before
@@ -115,7 +116,7 @@ public class NetworkClientTest {
         client.poll(1, time.milliseconds());
         assertTrue("The client should be ready", client.isReady(node, time.milliseconds()));
 
-        ProduceRequest.Builder builder = ProduceRequest.Builder.forCurrentMagic((short) 1, 1000,
+        ProduceRequest.Builder builder = new ProduceRequest.Builder(RecordBatch.CURRENT_MAGIC_VALUE, (short) 1, 1000,
                 Collections.<TopicPartition, MemoryRecords>emptyMap());
         ClientRequest request = client.newClientRequest(node.idString(), builder, time.milliseconds(), true);
         client.send(request, time.milliseconds());
@@ -133,7 +134,7 @@ public class NetworkClientTest {
 
     private void checkSimpleRequestResponse(NetworkClient networkClient) {
         awaitReady(networkClient, node); // has to be before creating any request, as it may send ApiVersionsRequest and its response is mocked with correlation id 0
-        ProduceRequest.Builder builder = ProduceRequest.Builder.forCurrentMagic((short) 1, 1000,
+        ProduceRequest.Builder builder = new ProduceRequest.Builder(RecordBatch.CURRENT_MAGIC_VALUE, (short) 1, 1000,
                         Collections.<TopicPartition, MemoryRecords>emptyMap());
         TestCallbackHandler handler = new TestCallbackHandler();
         ClientRequest request = networkClient.newClientRequest(
@@ -160,9 +161,8 @@ public class NetworkClientTest {
     }
 
     private void maybeSetExpectedApiVersionsResponse() {
-        ApiVersionsResponse response = ApiVersionsResponse.defaultApiVersionsResponse();
-        short apiVersionsResponseVersion = response.apiVersion(ApiKeys.API_VERSIONS.id).maxVersion;
-        ByteBuffer buffer = response.serialize(apiVersionsResponseVersion, new ResponseHeader(0));
+        short apiVersionsResponseVersion = ApiVersionsResponse.API_VERSIONS_RESPONSE.apiVersion(ApiKeys.API_VERSIONS.id).maxVersion;
+        ByteBuffer buffer = ApiVersionsResponse.API_VERSIONS_RESPONSE.serialize(apiVersionsResponseVersion, new ResponseHeader(0));
         selector.delayedReceive(new DelayedReceive(node.idString(), new NetworkReceive(node.idString(), buffer)));
     }
 
@@ -178,7 +178,7 @@ public class NetworkClientTest {
     @Test
     public void testRequestTimeout() {
         awaitReady(client, node); // has to be before creating any request, as it may send ApiVersionsRequest and its response is mocked with correlation id 0
-        ProduceRequest.Builder builder = ProduceRequest.Builder.forCurrentMagic((short) 1,
+        ProduceRequest.Builder builder = new ProduceRequest.Builder(RecordBatch.CURRENT_MAGIC_VALUE, (short) 1,
                 1000, Collections.<TopicPartition, MemoryRecords>emptyMap());
         TestCallbackHandler handler = new TestCallbackHandler();
         long now = time.milliseconds();
@@ -270,21 +270,14 @@ public class NetworkClientTest {
     public void testCallDisconnect() throws Exception {
         awaitReady(client, node);
         assertTrue("Expected NetworkClient to be ready to send to node " + node.idString(),
-            client.isReady(node, time.milliseconds()));
+            client.isReady(node, Time.SYSTEM.milliseconds()));
         assertFalse("Did not expect connection to node " + node.idString() + " to be failed",
             client.connectionFailed(node));
         client.disconnect(node.idString());
         assertFalse("Expected node " + node.idString() + " to be disconnected.",
-            client.isReady(node, time.milliseconds()));
+            client.isReady(node, Time.SYSTEM.milliseconds()));
         assertTrue("Expected connection to node " + node.idString() + " to be failed after disconnect",
             client.connectionFailed(node));
-        assertFalse(client.canConnect(node, time.milliseconds()));
-
-        // ensure disconnect does not reset blackout period if already disconnected
-        time.sleep(reconnectBackoffMsTest);
-        assertTrue(client.canConnect(node, time.milliseconds()));
-        client.disconnect(node.idString());
-        assertTrue(client.canConnect(node, time.milliseconds()));
     }
 
     private static class TestCallbackHandler implements RequestCompletionHandler {

@@ -18,7 +18,6 @@ package org.apache.kafka.streams.processor.internals;
 
 import org.apache.kafka.common.TopicPartition;
 
-import java.util.Collection;
 import java.util.Map;
 
 /**
@@ -28,21 +27,31 @@ import java.util.Map;
  */
 public interface ChangelogReader {
     /**
-     * Register a state store and it's partition for later restoration.
-     * @param restorer the state restorer to register
+     * Validate that the partition exists on the cluster.
+     * @param topicPartition    partition to validate.
+     * @param storeName         name of the store the partition is for.
+     * @throws org.apache.kafka.streams.errors.StreamsException if partition doesn't exist
      */
-    void register(final StateRestorer restorer);
+    void validatePartitionExists(final TopicPartition topicPartition, final String storeName);
+
+    /**
+     * Register a state store and it's partition for later restoration.
+     * @param restorationInfo
+     */
+    void register(final StateRestorer restorationInfo);
 
     /**
      * Restore all registered state stores by reading from their changelogs.
-     * @return all topic partitions that have been restored
      */
-    Collection<TopicPartition> restore(final RestoringTasks active);
+    void restore();
 
     /**
      * @return the restored offsets for all persistent stores.
      */
     Map<TopicPartition, Long> restoredOffsets();
 
-    void reset();
+    /**
+     * Clear out any internal state so this can be re-used
+     */
+    void clear();
 }

@@ -32,19 +32,19 @@ public class ClientStateTest {
     private final ClientState client = new ClientState(1);
 
     @Test
-    public void shouldHaveNotReachedCapacityWhenAssignedTasksLessThanCapacity() {
+    public void shouldHaveNotReachedCapacityWhenAssignedTasksLessThanCapacity() throws Exception {
         assertFalse(client.reachedCapacity());
     }
 
     @Test
-    public void shouldHaveReachedCapacityWhenAssignedTasksGreaterThanOrEqualToCapacity() {
+    public void shouldHaveReachedCapacityWhenAssignedTasksGreaterThanOrEqualToCapacity() throws Exception {
         client.assign(new TaskId(0, 1), true);
         assertTrue(client.reachedCapacity());
     }
 
 
     @Test
-    public void shouldAddActiveTasksToBothAssignedAndActive() {
+    public void shouldAddActiveTasksToBothAssignedAndActive() throws Exception {
         final TaskId tid = new TaskId(0, 1);
 
         client.assign(tid, true);
@@ -55,7 +55,7 @@ public class ClientStateTest {
     }
 
     @Test
-    public void shouldAddStandbyTasksToBothStandbyAndActive() {
+    public void shouldAddStandbyTasksToBothStandbyAndActive() throws Exception {
         final TaskId tid = new TaskId(0, 1);
 
         client.assign(tid, false);
@@ -66,7 +66,7 @@ public class ClientStateTest {
     }
 
     @Test
-    public void shouldAddPreviousActiveTasksToPreviousAssignedAndPreviousActive() {
+    public void shouldAddPreviousActiveTasksToPreviousAssignedAndPreviousActive() throws Exception {
         final TaskId tid1 = new TaskId(0, 1);
         final TaskId tid2 = new TaskId(0, 2);
 
@@ -76,7 +76,7 @@ public class ClientStateTest {
     }
 
     @Test
-    public void shouldAddPreviousStandbyTasksToPreviousAssigned() {
+    public void shouldAddPreviousStandbyTasksToPreviousAssigned() throws Exception {
         final TaskId tid1 = new TaskId(0, 1);
         final TaskId tid2 = new TaskId(0, 2);
 
@@ -86,7 +86,7 @@ public class ClientStateTest {
     }
 
     @Test
-    public void shouldHaveAssignedTaskIfActiveTaskAssigned() {
+    public void shouldHaveAssignedTaskIfActiveTaskAssigned() throws Exception {
         final TaskId tid = new TaskId(0, 2);
 
         client.assign(tid, true);
@@ -94,7 +94,7 @@ public class ClientStateTest {
     }
 
     @Test
-    public void shouldHaveAssignedTaskIfStandbyTaskAssigned() {
+    public void shouldHaveAssignedTaskIfStandbyTaskAssigned() throws Exception {
         final TaskId tid = new TaskId(0, 2);
 
         client.assign(tid, false);
@@ -102,14 +102,14 @@ public class ClientStateTest {
     }
 
     @Test
-    public void shouldNotHaveAssignedTaskIfTaskNotAssigned() {
+    public void shouldNotHaveAssignedTaskIfTaskNotAssigned() throws Exception {
 
         client.assign(new TaskId(0, 2), true);
         assertFalse(client.hasAssignedTask(new TaskId(0, 3)));
     }
 
     @Test
-    public void shouldHaveMoreAvailableCapacityWhenCapacityTheSameButFewerAssignedTasks() {
+    public void shouldHaveMoreAvailableCapacityWhenCapacityTheSameButFewerAssignedTasks() throws Exception {
         final ClientState c2 = new ClientState(1);
         client.assign(new TaskId(0, 1), true);
         assertTrue(c2.hasMoreAvailableCapacityThan(client));
@@ -117,14 +117,14 @@ public class ClientStateTest {
     }
 
     @Test
-    public void shouldHaveMoreAvailableCapacityWhenCapacityHigherAndSameAssignedTaskCount() {
+    public void shouldHaveMoreAvailableCapacityWhenCapacityHigherAndSameAssignedTaskCount() throws Exception {
         final ClientState c2 = new ClientState(2);
         assertTrue(c2.hasMoreAvailableCapacityThan(client));
         assertFalse(client.hasMoreAvailableCapacityThan(c2));
     }
 
     @Test
-    public void shouldUseMultiplesOfCapacityToDetermineClientWithMoreAvailableCapacity() {
+    public void shouldUseMultiplesOfCapacityToDetermineClientWithMoreAvailableCapacity() throws Exception {
         final ClientState c2 = new ClientState(2);
 
         for (int i = 0; i < 7; i++) {
@@ -139,7 +139,7 @@ public class ClientStateTest {
     }
 
     @Test
-    public void shouldHaveMoreAvailableCapacityWhenCapacityIsTheSameButAssignedTasksIsLess() {
+    public void shouldHaveMoreAvailableCapacityWhenCapacityIsTheSameButAssignedTasksIsLess() throws Exception {
         final ClientState c1 = new ClientState(3);
         final ClientState c2 = new ClientState(3);
         for (int i = 0; i < 4; i++) {
@@ -151,26 +151,26 @@ public class ClientStateTest {
     }
 
     @Test(expected = IllegalStateException.class)
-    public void shouldThrowIllegalStateExceptionIfCapacityOfThisClientStateIsZero() {
+    public void shouldThrowIllegalStateExceptionIfCapacityOfThisClientStateIsZero() throws Exception {
         final ClientState c1 = new ClientState(0);
         c1.hasMoreAvailableCapacityThan(new ClientState(1));
     }
 
     @Test(expected = IllegalStateException.class)
-    public void shouldThrowIllegalStateExceptionIfCapacityOfOtherClientStateIsZero() {
+    public void shouldThrowIllegalStateExceptionIfCapacityOfOtherClientStateIsZero() throws Exception {
         final ClientState c1 = new ClientState(1);
         c1.hasMoreAvailableCapacityThan(new ClientState(0));
     }
 
     @Test
-    public void shouldHaveUnfulfilledQuotaWhenActiveTaskSizeLessThanCapacityTimesTasksPerThread() {
+    public void shouldHaveUnfulfilledQuotaWhenActiveTaskSizeLessThanCapacityTimesTasksPerThread() throws Exception {
         final ClientState client = new ClientState(1);
         client.assign(new TaskId(0, 1), true);
         assertTrue(client.hasUnfulfilledQuota(2));
     }
 
     @Test
-    public void shouldNotHaveUnfulfilledQuotaWhenActiveTaskSizeGreaterEqualThanCapacityTimesTasksPerThread() {
+    public void shouldNotHaveUnfulfilledQuotaWhenActiveTaskSizeGreaterEqualThanCapacityTimesTasksPerThread() throws Exception {
         final ClientState client = new ClientState(1);
         client.assign(new TaskId(0, 1), true);
         assertFalse(client.hasUnfulfilledQuota(1));

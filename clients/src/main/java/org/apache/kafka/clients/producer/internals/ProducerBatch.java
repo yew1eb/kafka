@@ -75,7 +75,6 @@ public final class ProducerBatch {
     private long drainedMs;
     private String expiryErrorMessage;
     private boolean retry;
-    private boolean reopened = false;
 
     public ProducerBatch(TopicPartition tp, MemoryRecordsBuilder recordsBuilder, long now) {
         this(tp, recordsBuilder, now, false);
@@ -163,9 +162,8 @@ public final class ProducerBatch {
      * @param baseOffset The base offset of the messages assigned by the server
      * @param logAppendTime The log append time or -1 if CreateTime is being used
      * @param exception The exception that occurred (or null if the request was successful)
-     * @return true if the batch was completed successfully and false if the batch was previously aborted
      */
-    public boolean done(long baseOffset, long logAppendTime, RuntimeException exception) {
+    public void done(long baseOffset, long logAppendTime, RuntimeException exception) {
         final FinalState finalState;
         if (exception == null) {
             log.trace("Successfully produced messages to {} with base offset {}.", topicPartition, baseOffset);
@@ -178,14 +176,13 @@ public final class ProducerBatch {
         if (!this.finalState.compareAndSet(null, finalState)) {
             if (this.finalState.get() == FinalState.ABORTED) {
                 log.debug("ProduceResponse returned for {} after batch had already been aborted.", topicPartition);
-                return false;
+                return;
             } else {
                 throw new IllegalStateException("Batch has already been completed in final state " + this.finalState.get());
             }
         }
 
         completeFutureAndFireCallbacks(baseOffset, logAppendTime, exception);
-        return true;
     }
 
     private void completeFutureAndFireCallbacks(long baseOffset, long logAppendTime, RuntimeException exception) {
@@ -252,15 +249,6 @@ public final class ProducerBatch {
 
         produceFuture.set(ProduceResponse.INVALID_OFFSET, NO_TIMESTAMP, new RecordBatchTooLargeException());
         produceFuture.done();
-
-        if (hasSequence()) {
-            int sequence = baseSequence();
-            ProducerIdAndEpoch producerIdAndEpoch = new ProducerIdAndEpoch(producerId(), producerEpoch());
-            for (ProducerBatch newBatch : batches) {
-                newBatch.setProducerState(producerIdAndEpoch, sequence, isTransactional());
-                sequence += newBatch.recordCount;
-            }
-        }
         return batches;
     }
 
@@ -387,12 +375,8 @@ public final class ProducerBatch {
     }
 
     public void setProducerState(ProducerIdAndEpoch producerIdAndEpoch, int baseSequence, boolean isTransactional) {
-        recordsBuilder.setProducerState(producerIdAndEpoch.producerId, producerIdAndEpoch.epoch, baseSequence, isTransactional);
-    }
-
-    public void resetProducerState(ProducerIdAndEpoch producerIdAndEpoch, int baseSequence, boolean isTransactional) {
-        reopened = true;
-        recordsBuilder.reopenAndRewriteProducerState(producerIdAndEpoch.producerId, producerIdAndEpoch.epoch, baseSequence, isTransactional);
+        recordsBuilder.setProducerState(producerIdAndEpoch.producerId, producerIdAndEpoch.epoch,
+                baseSequence, isTransactional);
     }
 
     /**
@@ -410,7 +394,6 @@ public final class ProducerBatch {
                                                        recordsBuilder.compressionType(),
                                                        (float) recordsBuilder.compressionRatio());
         }
-        reopened = false;
     }
 
     /**
@@ -451,21 +434,4 @@ public final class ProducerBatch {
     public short producerEpoch() {
         return recordsBuilder.producerEpoch();
     }
-
-    public int baseSequence() {
-        return recordsBuilder.baseSequence();
-    }
-
-    public boolean hasSequence() {
-        return baseSequence() != RecordBatch.NO_SEQUENCE;
-    }
-
-    public boolean isTransactional() {
-        return recordsBuilder.isTransactional();
-    }
-
-    public boolean sequenceHasBeenReset() {
-        return reopened;
-    }
-
 }

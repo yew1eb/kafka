@@ -20,7 +20,7 @@ import kafka.utils.MockScheduler
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.requests.TransactionResult
-import org.apache.kafka.common.utils.{LogContext, MockTime}
+import org.apache.kafka.common.utils.MockTime
 import org.easymock.{Capture, EasyMock, IAnswer}
 import org.junit.Assert._
 import org.junit.Test
@@ -52,8 +52,7 @@ class TransactionCoordinatorTest {
     pidManager,
     transactionManager,
     transactionMarkerChannelManager,
-    time,
-    new LogContext)
+    time)
 
   var result: InitProducerIdResult = _
   var error: Errors = Errors.NONE

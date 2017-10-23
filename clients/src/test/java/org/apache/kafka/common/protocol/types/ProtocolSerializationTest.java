@@ -16,17 +16,17 @@
  */
 package org.apache.kafka.common.protocol.types;
 
-import org.junit.Before;
-import org.junit.Test;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.fail;
 
 import java.nio.ByteBuffer;
 import java.util.Arrays;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.fail;
+import org.junit.Before;
+import org.junit.Test;
 
 public class ProtocolSerializationTest {
 
@@ -96,15 +96,15 @@ public class ProtocolSerializationTest {
 
     @Test
     public void testNulls() {
-        for (BoundField f : this.schema.fields()) {
+        for (Field f : this.schema.fields()) {
             Object o = this.struct.get(f);
             try {
                 this.struct.set(f, null);
                 this.struct.validate();
-                if (!f.def.type.isNullable())
+                if (!f.type.isNullable())
                     fail("Should not allow serialization of null value.");
             } catch (SchemaException e) {
-                assertFalse(f.def.type.isNullable());
+                assertFalse(f.type.isNullable());
             } finally {
                 this.struct.set(f, o);
             }

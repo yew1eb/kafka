@@ -19,7 +19,6 @@ package org.apache.kafka.streams.kstream.internals;
 import org.apache.kafka.common.serialization.Serde;
 import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.common.utils.Utils;
-import org.apache.kafka.streams.Consumed;
 import org.apache.kafka.streams.StreamsBuilder;
 import org.apache.kafka.streams.kstream.KTable;
 import org.apache.kafka.test.KStreamTestDriver;
@@ -38,7 +37,6 @@ import static org.junit.Assert.assertTrue;
 public class KTableSourceTest {
 
     final private Serde<String> stringSerde = Serdes.String();
-    private final Consumed<String, String> stringConsumed = Consumed.with(stringSerde, stringSerde);
     final private Serde<Integer> intSerde = Serdes.Integer();
     @Rule
     public final KStreamTestDriver driver = new KStreamTestDriver();
@@ -55,7 +53,7 @@ public class KTableSourceTest {
 
         String topic1 = "topic1";
 
-        KTable<String, Integer> table1 = builder.table(topic1, Consumed.with(stringSerde, intSerde));
+        KTable<String, Integer> table1 = builder.table(stringSerde, intSerde, topic1, "anyStoreName");
 
         MockProcessorSupplier<String, Integer> proc1 = new MockProcessorSupplier<>();
         table1.toStream().process(proc1);
@@ -79,7 +77,7 @@ public class KTableSourceTest {
 
         String topic1 = "topic1";
 
-        KTableImpl<String, String, String> table1 = (KTableImpl<String, String, String>) builder.table(topic1, stringConsumed);
+        KTableImpl<String, String, String> table1 = (KTableImpl<String, String, String>) builder.table(stringSerde, stringSerde, topic1, "anyStoreName");
 
         KTableValueGetterSupplier<String, String> getterSupplier1 = table1.valueGetterSupplier();
 
@@ -123,7 +121,7 @@ public class KTableSourceTest {
 
         String topic1 = "topic1";
 
-        KTableImpl<String, String, String> table1 = (KTableImpl<String, String, String>) builder.table(topic1, stringConsumed);
+        KTableImpl<String, String, String> table1 = (KTableImpl<String, String, String>) builder.table(stringSerde, stringSerde, topic1, "anyStoreName");
 
         MockProcessorSupplier<String, Integer> proc1 = new MockProcessorSupplier<>();
 
@@ -161,7 +159,7 @@ public class KTableSourceTest {
 
         String topic1 = "topic1";
 
-        KTableImpl<String, String, String> table1 = (KTableImpl<String, String, String>) builder.table(topic1, stringConsumed);
+        KTableImpl<String, String, String> table1 = (KTableImpl<String, String, String>) builder.table(stringSerde, stringSerde, topic1, "anyStoreName");
 
         table1.enableSendingOldValues();
 

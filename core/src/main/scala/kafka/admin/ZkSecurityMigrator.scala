@@ -62,7 +62,7 @@ object ZkSecurityMigrator extends Logging {
                       + "authentication.")
 
   def run(args: Array[String]) {
-    val jaasFile = System.getProperty(JaasUtils.JAVA_LOGIN_CONFIG_PARAM)
+    var jaasFile = System.getProperty(JaasUtils.JAVA_LOGIN_CONFIG_PARAM)
     val parser = new OptionParser(false)
     val zkAclOpt = parser.accepts("zookeeper.acl", "Indicates whether to make the Kafka znodes in ZooKeeper secure or unsecure."
         + " The options are 'secure' and 'unsecure'").withRequiredArg().ofType(classOf[String])

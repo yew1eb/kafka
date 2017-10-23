@@ -105,10 +105,9 @@ public class TestDigestLoginModule extends PlainLoginModule {
 
         private static final long serialVersionUID = 1L;
 
-        @SuppressWarnings("deprecation")
         protected DigestSaslServerProvider() {
             super("Test SASL/Digest-MD5 Server Provider", 1.0, "Test SASL/Digest-MD5 Server Provider for Kafka");
-            put("SaslServerFactory.DIGEST-MD5", TestDigestLoginModule.DigestSaslServerFactory.class.getName());
+            super.put("SaslServerFactory.DIGEST-MD5", TestDigestLoginModule.DigestSaslServerFactory.class.getName());
         }
     }
 }

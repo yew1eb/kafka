@@ -29,9 +29,8 @@ import kafka.consumer._
 import kafka.message._
 import kafka.metrics.KafkaMetricsReporter
 import kafka.utils._
-import kafka.utils.Implicits._
 import org.apache.kafka.clients.consumer.{ConsumerConfig, ConsumerRecord}
-import org.apache.kafka.common.errors.{AuthenticationException, WakeupException}
+import org.apache.kafka.common.errors.WakeupException
 import org.apache.kafka.common.record.TimestampType
 import org.apache.kafka.common.serialization.Deserializer
 import org.apache.kafka.common.utils.Utils
@@ -53,9 +52,6 @@ object ConsoleConsumer extends Logging {
     try {
       run(conf)
     } catch {
-      case e: AuthenticationException =>
-        error("Authentication failed: terminating consumer process", e)
-        Exit.exit(1)
       case e: Throwable =>
         error("Unknown error when running consumer: ", e)
         Exit.exit(1)
@@ -67,9 +63,7 @@ object ConsoleConsumer extends Logging {
     val consumer =
       if (conf.useOldConsumer) {
         checkZk(conf)
-        val props = getOldConsumerProps(conf)
-        checkAndMaybeDeleteOldPath(conf, props)
-        new OldConsumer(conf.filterSpec, props)
+        new OldConsumer(conf.filterSpec, getOldConsumerProps(conf))
       } else {
         val timeoutMs = if (conf.timeoutMs >= 0) conf.timeoutMs else Long.MaxValue
         if (conf.partitionArg.isDefined)
@@ -177,36 +171,31 @@ object ConsoleConsumer extends Logging {
   def getOldConsumerProps(config: ConsumerConfig): Properties = {
     val props = new Properties
 
-    props ++= config.consumerProps
-    props ++= config.extraConsumerProps
+    props.putAll(config.consumerProps)
+    props.putAll(config.extraConsumerProps)
     setAutoOffsetResetValue(config, props)
     props.put("zookeeper.connect", config.zkConnectionStr)
 
+    if (!config.options.has(config.deleteConsumerOffsetsOpt) && config.options.has(config.resetBeginningOpt) &&
+      checkZkPathExists(config.options.valueOf(config.zkConnectOpt), "/consumers/" + props.getProperty("group.id") + "/offsets")) {
+      System.err.println("Found previous offset information for this group " + props.getProperty("group.id")
+        + ". Please use --delete-consumer-offsets to delete previous offsets metadata")
+      Exit.exit(1)
+    }
+
+    if (config.options.has(config.deleteConsumerOffsetsOpt))
+      ZkUtils.maybeDeletePath(config.options.valueOf(config.zkConnectOpt), "/consumers/" + config.consumerProps.getProperty("group.id"))
     if (config.timeoutMs >= 0)
       props.put("consumer.timeout.ms", config.timeoutMs.toString)
 
     props
   }
 
-  def checkAndMaybeDeleteOldPath(config: ConsumerConfig, props: Properties) = {
-    val consumerGroupBasePath = "/consumers/" + props.getProperty("group.id")
-    if (config.options.has(config.deleteConsumerOffsetsOpt)) {
-      ZkUtils.maybeDeletePath(config.options.valueOf(config.zkConnectOpt), consumerGroupBasePath)
-    } else {
-      val resetToBeginning = OffsetRequest.SmallestTimeString == props.getProperty(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG)
-      if (resetToBeginning && checkZkPathExists(config.options.valueOf(config.zkConnectOpt), consumerGroupBasePath + "/offsets")) {
-        System.err.println("Found previous offset information for this group " + props.getProperty("group.id")
-          + ". Please use --delete-consumer-offsets to delete previous offsets metadata")
-        Exit.exit(1)
-      }
-    }
-  }
-
   def getNewConsumerProps(config: ConsumerConfig): Properties = {
     val props = new Properties
 
-    props ++= config.consumerProps
-    props ++= config.extraConsumerProps
+    props.putAll(config.consumerProps)
+    props.putAll(config.extraConsumerProps)
     setAutoOffsetResetValue(config, props)
     props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, config.bootstrapServer)
     props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.ByteArrayDeserializer")
@@ -227,27 +216,19 @@ object ConsoleConsumer extends Logging {
     * are conflicting.
     */
   def setAutoOffsetResetValue(config: ConsumerConfig, props: Properties) {
-    val (earliestConfigValue, latestConfigValue) = if (config.useOldConsumer)
-      (OffsetRequest.SmallestTimeString, OffsetRequest.LargestTimeString)
-    else
-      ("earliest", "latest")
-
     if (props.containsKey(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG)) {
       // auto.offset.reset parameter was specified on the command line
-      val autoResetOption = props.getProperty(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG)
-      if (config.options.has(config.resetBeginningOpt) && earliestConfigValue != autoResetOption) {
+      if (config.options.has(config.resetBeginningOpt) && "latest".equals(props.getProperty(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG))) {
         // conflicting options - latest und earliest, throw an error
-        System.err.println(s"Can't simultaneously specify --from-beginning and 'auto.offset.reset=$autoResetOption', " +
-          "please remove one option")
+        System.err.println("Can't simultaneously specify --from-beginning and 'auto.offset.reset=latest', please remove one option")
         Exit.exit(1)
       }
       // nothing to do, checking for valid parameter values happens later and the specified
       // value was already copied during .putall operation
     } else {
       // no explicit value for auto.offset.reset was specified
-      // if --from-beginning was specified use earliest, otherwise default to latest
-      val autoResetOption = if (config.options.has(config.resetBeginningOpt)) earliestConfigValue else latestConfigValue
-      props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, autoResetOption)
+      // if --from-beginning was specified use "earliest", otherwise default to "latest"
+      props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, if (config.options.has(config.resetBeginningOpt)) "earliest" else "latest")
     }
   }
 
@@ -340,10 +321,6 @@ object ConsoleConsumer extends Logging {
       .ofType(classOf[String])
       .defaultsTo("read_uncommitted")
 
-    val groupIdOpt = parser.accepts("group", "The consumer group id of the consumer.")
-      .withRequiredArg
-      .describedAs("consumer group id")
-      .ofType(classOf[String])
 
     if (args.length == 0)
       CommandLineUtils.printUsageAndDie(parser, "The console consumer is a tool that reads data from Kafka and outputs it to standard output.")
@@ -460,25 +437,10 @@ object ConsoleConsumer extends Logging {
       KafkaMetricsReporter.startReporters(verifiableProps)
     }
 
-    // if the group id is provided in more than place (through different means) all values must be the same
-    val groupIdsProvided = Set(
-        Option(options.valueOf(groupIdOpt)),                           // via --group
-        Option(consumerProps.get(ConsumerConfig.GROUP_ID_CONFIG)),     // via --consumer-property
-        Option(extraConsumerProps.get(ConsumerConfig.GROUP_ID_CONFIG)) // via --cosumer.config
-      ).flatten
-
-    if (groupIdsProvided.size > 1) {
-      CommandLineUtils.printUsageAndDie(parser, "The group ids provided in different places (directly using '--group', "
-                                              + "via '--consumer-property', or via '--consumer.config') do not match. "
-                                              + s"Detected group ids: ${groupIdsProvided.mkString("'", "', '", "'")}")
-    }
-
-    groupIdsProvided.headOption match {
-      case Some(group) =>
-        consumerProps.put(ConsumerConfig.GROUP_ID_CONFIG, group)
-      case None =>
-        consumerProps.put(ConsumerConfig.GROUP_ID_CONFIG, s"console-consumer-${new Random().nextInt(100000)}")
-        groupIdPassed = false
+    //Provide the consumer with a randomly assigned group id
+    if (!consumerProps.containsKey(ConsumerConfig.GROUP_ID_CONFIG)) {
+      consumerProps.put(ConsumerConfig.GROUP_ID_CONFIG, s"console-consumer-${new Random().nextInt(100000)}")
+      groupIdPassed = false
     }
 
     def tryParse(parser: OptionParser, args: Array[String]): OptionSet = {

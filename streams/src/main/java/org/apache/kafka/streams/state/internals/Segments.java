@@ -24,7 +24,6 @@ import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
-import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -62,14 +61,12 @@ class Segments {
         this.formatter.setTimeZone(new SimpleTimeZone(0, "UTC"));
     }
 
-    long segmentId(final long timestamp) {
+    long segmentId(long timestamp) {
         return timestamp / segmentInterval;
     }
 
-    String segmentName(final long segmentId) {
-        // previous format used - as a separator so if this changes in the future
-        // then we should use something different.
-        return name + ":" + segmentId * segmentInterval;
+    String segmentName(long segmentId) {
+        return name + "-" + formatter.format(new Date(segmentId * segmentInterval));
     }
 
     Segment getSegmentForTimestamp(final long timestamp) {
@@ -88,7 +85,9 @@ class Segments {
             if (previousSegment == null) {
                 newSegment.openDB(context);
                 maxSegmentId = segmentId > maxSegmentId ? segmentId : maxSegmentId;
-                minSegmentId = segmentId < minSegmentId ? segmentId : minSegmentId;
+                if (minSegmentId == Long.MAX_VALUE) {
+                    minSegmentId = maxSegmentId;
+                }
             }
             return previousSegment == null ? newSegment : previousSegment;
         } else {
@@ -104,7 +103,7 @@ class Segments {
                 if (list != null) {
                     long[] segmentIds = new long[list.length];
                     for (int i = 0; i < list.length; i++)
-                        segmentIds[i] = segmentIdFromSegmentName(list[i], dir);
+                        segmentIds[i] = segmentIdFromSegmentName(list[i]);
 
                     // open segments in the id order
                     Arrays.sort(segmentIds);
@@ -188,35 +187,12 @@ class Segments {
         }
     }
 
-    private long segmentIdFromSegmentName(final String segmentName,
-                                          final File parent) {
-        // old style segment name with date
-        if (segmentName.charAt(name.length()) == '-') {
-            final String datePart = segmentName.substring(name.length() + 1);
-            final Date date;
-            try {
-                date = formatter.parse(datePart);
-                final long segmentId = date.getTime() / segmentInterval;
-                final File newName = new File(parent, segmentName(segmentId));
-                final File oldName = new File(parent, segmentName);
-                if (!oldName.renameTo(newName)) {
-                    throw new ProcessorStateException("Unable to rename old style segment from: "
-                                                              + oldName
-                                                              + " to new name: "
-                                                              + newName);
-                }
-                return segmentId;
-            } catch (ParseException e) {
-                log.warn("Unable to parse segmentName {} to a date. This segment will be skipped", segmentName);
-                return -1L;
-            }
-        } else {
-            try {
-                return Long.parseLong(segmentName.substring(name.length() + 1)) / segmentInterval;
-            } catch (NumberFormatException e) {
-                throw new ProcessorStateException("Unable to parse segment id as long from segmentName: " + segmentName);
-            }
+    private long segmentIdFromSegmentName(String segmentName) {
+        try {
+            Date date = formatter.parse(segmentName.substring(name.length() + 1));
+            return date.getTime() / segmentInterval;
+        } catch (Exception ex) {
+            return -1L;
         }
-
     }
 }

@@ -18,27 +18,15 @@ package org.apache.kafka.common.requests;
 
 import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.Errors;
-import org.apache.kafka.common.protocol.types.Field;
-import org.apache.kafka.common.protocol.types.Schema;
 import org.apache.kafka.common.protocol.types.Struct;
 
 import java.nio.ByteBuffer;
 
-import static org.apache.kafka.common.protocol.CommonFields.NULLABLE_TRANSACTIONAL_ID;
-import static org.apache.kafka.common.protocol.types.Type.INT32;
-
 public class InitProducerIdRequest extends AbstractRequest {
     public static final int NO_TRANSACTION_TIMEOUT_MS = Integer.MAX_VALUE;
 
+    private static final String TRANSACTIONAL_ID_KEY_NAME = "transactional_id";
     private static final String TRANSACTION_TIMEOUT_KEY_NAME = "transaction_timeout_ms";
-
-    private static final Schema INIT_PRODUCER_ID_REQUEST_V0 = new Schema(
-            NULLABLE_TRANSACTIONAL_ID,
-            new Field(TRANSACTION_TIMEOUT_KEY_NAME, INT32, "The time in ms to wait for before aborting idle transactions sent by this producer."));
-
-    public static Schema[] schemaVersions() {
-        return new Schema[]{INIT_PRODUCER_ID_REQUEST_V0};
-    }
 
     private final String transactionalId;
     private final int transactionTimeoutMs;
@@ -78,7 +66,7 @@ public class InitProducerIdRequest extends AbstractRequest {
 
     public InitProducerIdRequest(Struct struct, short version) {
         super(version);
-        this.transactionalId = struct.get(NULLABLE_TRANSACTIONAL_ID);
+        this.transactionalId = struct.getString(TRANSACTIONAL_ID_KEY_NAME);
         this.transactionTimeoutMs = struct.getInt(TRANSACTION_TIMEOUT_KEY_NAME);
     }
 
@@ -108,7 +96,7 @@ public class InitProducerIdRequest extends AbstractRequest {
     @Override
     protected Struct toStruct() {
         Struct struct = new Struct(ApiKeys.INIT_PRODUCER_ID.requestSchema(version()));
-        struct.set(NULLABLE_TRANSACTIONAL_ID, transactionalId);
+        struct.set(TRANSACTIONAL_ID_KEY_NAME, transactionalId);
         struct.set(TRANSACTION_TIMEOUT_KEY_NAME, transactionTimeoutMs);
         return struct;
     }

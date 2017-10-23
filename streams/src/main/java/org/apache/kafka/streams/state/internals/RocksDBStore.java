@@ -17,6 +17,7 @@
 package org.apache.kafka.streams.state.internals;
 
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.config.ConfigDef;
 import org.apache.kafka.common.serialization.Serde;
 import org.apache.kafka.common.utils.Bytes;
 import org.apache.kafka.common.utils.Utils;
@@ -46,7 +47,6 @@ import org.rocksdb.WriteBatch;
 import org.rocksdb.WriteOptions;
 
 import java.io.File;
-import java.io.FilenameFilter;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.Collection;
@@ -154,8 +154,11 @@ public class RocksDBStore<K, V> implements KeyValueStore<K, V> {
         fOptions.setWaitForFlush(true);
 
         final Map<String, Object> configs = context.appConfigs();
-        final Class<RocksDBConfigSetter> configSetterClass =
-                (Class<RocksDBConfigSetter>) configs.get(StreamsConfig.ROCKSDB_CONFIG_SETTER_CLASS_CONFIG);
+        final Object configSetterValue = configs.get(StreamsConfig.ROCKSDB_CONFIG_SETTER_CLASS_CONFIG);
+        final Class<RocksDBConfigSetter> configSetterClass = (Class<RocksDBConfigSetter>) ConfigDef.parseType(
+                StreamsConfig.ROCKSDB_CONFIG_SETTER_CLASS_CONFIG,
+                configSetterValue,
+                ConfigDef.Type.CLASS);
 
         if (configSetterClass != null) {
             final RocksDBConfigSetter configSetter = Utils.newInstance(configSetterClass);
@@ -169,14 +172,11 @@ public class RocksDBStore<K, V> implements KeyValueStore<K, V> {
             valueSerde == null ? (Serde<V>) context.valueSerde() : valueSerde);
 
         this.dbDir = new File(new File(context.stateDir(), parentDir), this.name);
-
         try {
             this.db = openDB(this.dbDir, this.options, TTL_SECONDS);
         } catch (IOException e) {
             throw new ProcessorStateException(e);
         }
-
-        open = true;
     }
 
     public void init(ProcessorContext context, StateStore root) {
@@ -188,6 +188,8 @@ public class RocksDBStore<K, V> implements KeyValueStore<K, V> {
         // value getter should always read directly from rocksDB
         // since it is only for values that are already flushed
         context.register(root, false, this.batchingStateRestoreCallback);
+
+        open = true;
     }
 
     private RocksDB openDB(File dir, Options options, int ttl) throws IOException {
@@ -252,29 +254,10 @@ public class RocksDBStore<K, V> implements KeyValueStore<K, V> {
     }
 
     private void toggleDbForBulkLoading(boolean prepareForBulkload) {
-
-        if (prepareForBulkload) {
-            // if the store is not empty, we need to compact to get around the num.levels check
-            // for bulk loading
-            final String[] sstFileNames = dbDir.list(new FilenameFilter() {
-                @Override
-                public boolean accept(File dir, String name) {
-                    return name.matches(".*\\.sst");
-                }
-            });
-
-            if (sstFileNames != null && sstFileNames.length > 0) {
-                try {
-                    this.db.compactRange(true, 1, 0);
-                } catch (RocksDBException e) {
-                    throw new ProcessorStateException("Error while range compacting during restoring  store " + this.name, e);
-                }
-            }
-        }
-
         close();
         this.prepareForBulkload = prepareForBulkload;
         openDB(internalProcessorContext);
+        open = true;
     }
 
     @SuppressWarnings("unchecked")
@@ -367,7 +350,6 @@ public class RocksDBStore<K, V> implements KeyValueStore<K, V> {
         // query rocksdb
         final RocksDBRangeIterator rocksDBRangeIterator = new RocksDBRangeIterator(name, db.newIterator(), serdes, from, to);
         openIterators.add(rocksDBRangeIterator);
-
         return rocksDBRangeIterator;
     }
 
@@ -453,7 +435,7 @@ public class RocksDBStore<K, V> implements KeyValueStore<K, V> {
     }
 
     private void closeOpenIterators() {
-        HashSet<KeyValueIterator> iterators;
+        HashSet<KeyValueIterator> iterators = null;
         synchronized (openIterators) {
             iterators = new HashSet<>(openIterators);
         }
@@ -548,8 +530,7 @@ public class RocksDBStore<K, V> implements KeyValueStore<K, V> {
         }
     }
 
-    // not private for testing
-    static class RocksDBBatchingRestoreCallback extends AbstractNotifyingBatchingRestoreCallback {
+    private static class RocksDBBatchingRestoreCallback extends AbstractNotifyingBatchingRestoreCallback {
 
         private final RocksDBStore rocksDBStore;
 

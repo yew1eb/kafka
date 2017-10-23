@@ -114,8 +114,8 @@ object DumpLogSegments {
           dumpIndex(file, indexSanityOnly, verifyOnly, misMatchesForIndexFilesMap, maxMessageSize)
         case Log.TimeIndexFileSuffix =>
           dumpTimeIndex(file, indexSanityOnly, verifyOnly, timeIndexDumpErrors, maxMessageSize)
-        case Log.ProducerSnapshotFileSuffix =>
-          dumpProducerIdSnapshot(file)
+        case Log.PidSnapshotFileSuffix =>
+          dumpPidSnapshot(file)
         case Log.TxnIndexFileSuffix =>
           dumpTxnIndex(file)
         case _ =>
@@ -145,19 +145,19 @@ object DumpLogSegments {
   }
 
   private def dumpTxnIndex(file: File): Unit = {
-    val index = new TransactionIndex(Log.offsetFromFile(file), file)
+    val index = new TransactionIndex(Log.offsetFromFilename(file.getName), file)
     for (abortedTxn <- index.allAbortedTxns) {
       println(s"version: ${abortedTxn.version} producerId: ${abortedTxn.producerId} firstOffset: ${abortedTxn.firstOffset} " +
         s"lastOffset: ${abortedTxn.lastOffset} lastStableOffset: ${abortedTxn.lastStableOffset}")
     }
   }
 
-  private def dumpProducerIdSnapshot(file: File): Unit = {
+  private def dumpPidSnapshot(file: File): Unit = {
     try {
-      ProducerStateManager.readSnapshot(file).foreach { entry =>
-        println(s"producerId: ${entry.producerId} producerEpoch: ${entry.producerEpoch} " +
-          s"coordinatorEpoch: ${entry.coordinatorEpoch} currentTxnFirstOffset: ${entry.currentTxnFirstOffset} " +
-          s"cachedMetadata: ${entry.batchMetadata}")
+      ProducerStateManager.readSnapshot(file).foreach { entry=>
+        println(s"producerId: ${entry.producerId} producerEpoch: ${entry.producerEpoch} lastSequence: ${entry.lastSeq} " +
+          s"lastOffset: ${entry.lastOffset} offsetDelta: ${entry.offsetDelta} lastTimestamp: ${entry.timestamp} " +
+          s"coordinatorEpoch: ${entry.coordinatorEpoch} currentTxnFirstOffset: ${entry.currentTxnFirstOffset}")
       }
     } catch {
       case e: CorruptSnapshotException =>
@@ -334,12 +334,8 @@ object DumpLogSegments {
         }
       }.mkString("{", ",", "}")
 
-      val keyString = Json.encode(Map("metadata" -> groupId))
-      val valueString = Json.encode(Map(
-          "protocolType" -> protocolType,
-          "protocol" -> group.protocol,
-          "generationId" -> group.generationId,
-          "assignment" -> assignment))
+      val keyString = s"metadata::$groupId"
+      val valueString = s"$protocolType:${group.protocol}:${group.generationId}:$assignment"
 
       (Some(keyString), Some(valueString))
     }
@@ -440,21 +436,21 @@ object DumpLogSegments {
     val shallowOffsetNotFound = new mutable.HashMap[String, ArrayBuffer[(Long, Long)]]
 
     def recordMismatchTimeIndex(file: File, indexTimestamp: Long, logTimestamp: Long) {
-      val misMatchesSeq = misMatchesForTimeIndexFilesMap.getOrElse(file.getAbsolutePath, new ArrayBuffer[(Long, Long)]())
+      var misMatchesSeq = misMatchesForTimeIndexFilesMap.getOrElse(file.getAbsolutePath, new ArrayBuffer[(Long, Long)]())
       if (misMatchesSeq.isEmpty)
         misMatchesForTimeIndexFilesMap.put(file.getAbsolutePath, misMatchesSeq)
       misMatchesSeq += ((indexTimestamp, logTimestamp))
     }
 
     def recordOutOfOrderIndexTimestamp(file: File, indexTimestamp: Long, prevIndexTimestamp: Long) {
-      val outOfOrderSeq = outOfOrderTimestamp.getOrElse(file.getAbsolutePath, new ArrayBuffer[(Long, Long)]())
+      var outOfOrderSeq = outOfOrderTimestamp.getOrElse(file.getAbsolutePath, new ArrayBuffer[(Long, Long)]())
       if (outOfOrderSeq.isEmpty)
         outOfOrderTimestamp.put(file.getAbsolutePath, outOfOrderSeq)
       outOfOrderSeq += ((indexTimestamp, prevIndexTimestamp))
     }
 
     def recordShallowOffsetNotFound(file: File, indexOffset: Long, logOffset: Long) {
-      val shallowOffsetNotFoundSeq = shallowOffsetNotFound.getOrElse(file.getAbsolutePath, new ArrayBuffer[(Long, Long)]())
+      var shallowOffsetNotFoundSeq = shallowOffsetNotFound.getOrElse(file.getAbsolutePath, new ArrayBuffer[(Long, Long)]())
       if (shallowOffsetNotFoundSeq.isEmpty)
         shallowOffsetNotFound.put(file.getAbsolutePath, shallowOffsetNotFoundSeq)
       shallowOffsetNotFoundSeq += ((indexOffset, logOffset))

@@ -60,7 +60,6 @@ public class SmokeTestUtil {
                         }
                         numRecordsProcessed++;
                         if (numRecordsProcessed % 100 == 0) {
-                            System.out.println(System.currentTimeMillis());
                             System.out.println("processed " + numRecordsProcessed + " records from topic=" + topic);
                         }
                     }
@@ -129,7 +128,7 @@ public class SmokeTestUtil {
 
     static Serde<Double> doubleSerde = Serdes.Double();
 
-    static File createDir(final File parent, final String child) {
+    static File createDir(final File parent, final String child) throws Exception {
         final File dir = new File(parent, child);
 
         dir.mkdir();

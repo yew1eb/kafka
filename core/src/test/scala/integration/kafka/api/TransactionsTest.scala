@@ -29,7 +29,7 @@ import org.apache.kafka.clients.consumer.{ConsumerConfig, KafkaConsumer, OffsetA
 import org.apache.kafka.clients.producer.{KafkaProducer, ProducerRecord}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors.ProducerFencedException
-import org.apache.kafka.common.security.auth.SecurityProtocol
+import org.apache.kafka.common.protocol.SecurityProtocol
 import org.junit.{After, Before, Test}
 import org.junit.Assert._
 
@@ -529,7 +529,7 @@ class TransactionsTest extends KafkaServerTestHarness {
     consumer
   }
 
-  private def createReadUncommittedConsumer(group: String) = {
+  private def createReadUncommittedConsumer(group: String = "group") = {
     val props = new Properties()
     props.put(ConsumerConfig.ISOLATION_LEVEL_CONFIG, "read_uncommitted")
     props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false")

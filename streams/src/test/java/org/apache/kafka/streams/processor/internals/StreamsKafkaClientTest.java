@@ -17,26 +17,18 @@
 package org.apache.kafka.streams.processor.internals;
 
 import org.apache.kafka.clients.MockClient;
-import org.apache.kafka.common.MetricName;
 import org.apache.kafka.common.Node;
-import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.config.AbstractConfig;
 import org.apache.kafka.common.config.SaslConfigs;
 import org.apache.kafka.common.config.TopicConfig;
-import org.apache.kafka.common.metrics.KafkaMetric;
 import org.apache.kafka.common.metrics.MetricsReporter;
-import org.apache.kafka.common.protocol.ApiKeys;
-import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.requests.AbstractRequest;
 import org.apache.kafka.common.requests.ApiError;
-import org.apache.kafka.common.requests.ApiVersionsResponse;
 import org.apache.kafka.common.requests.CreateTopicsRequest;
 import org.apache.kafka.common.requests.CreateTopicsResponse;
 import org.apache.kafka.common.requests.MetadataResponse;
-import org.apache.kafka.common.requests.ProduceResponse;
 import org.apache.kafka.common.utils.MockTime;
 import org.apache.kafka.streams.StreamsConfig;
-import org.apache.kafka.streams.errors.StreamsException;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -48,7 +40,6 @@ import java.util.Map;
 import static java.util.Arrays.asList;
 import static org.hamcrest.CoreMatchers.equalTo;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
 
 public class StreamsKafkaClientTest {
@@ -133,59 +124,6 @@ public class StreamsKafkaClientTest {
         verifyCorrectTopicConfigs(streamsKafkaClient, topicConfigWithNoOverrides, Collections.singletonMap("cleanup.policy", "delete"));
     }
 
-    @Test
-    public void metricsShouldBeTaggedWithClientId() {
-        config.put(StreamsConfig.CLIENT_ID_CONFIG, "some_client_id");
-        config.put(StreamsConfig.METRIC_REPORTER_CLASSES_CONFIG, TestMetricsReporter.class.getName());
-        StreamsKafkaClient.create(new StreamsConfig(config));
-        assertFalse(TestMetricsReporter.METRICS.isEmpty());
-        for (KafkaMetric kafkaMetric : TestMetricsReporter.METRICS.values()) {
-            assertEquals("some_client_id", kafkaMetric.metricName().tags().get("client-id"));
-        }
-    }
-
-    @Test(expected = StreamsException.class)
-    public void shouldThrowStreamsExceptionOnEmptyBrokerCompatibilityResponse() {
-        kafkaClient.prepareResponse(null);
-        final StreamsKafkaClient streamsKafkaClient = createStreamsKafkaClient();
-        streamsKafkaClient.checkBrokerCompatibility(false);
-    }
-
-    @Test(expected = StreamsException.class)
-    public void shouldThrowStreamsExceptionWhenBrokerCompatibilityResponseInconsistent() {
-        kafkaClient.prepareResponse(new ProduceResponse(Collections.<TopicPartition, ProduceResponse.PartitionResponse>emptyMap()));
-        final StreamsKafkaClient streamsKafkaClient = createStreamsKafkaClient();
-        streamsKafkaClient.checkBrokerCompatibility(false);
-    }
-
-    @Test(expected = StreamsException.class)
-    public void shouldRequireBrokerVersion0101OrHigherWhenEosDisabled() {
-        kafkaClient.prepareResponse(new ApiVersionsResponse(Errors.NONE, Collections.singletonList(new ApiVersionsResponse.ApiVersion(ApiKeys.PRODUCE))));
-        final StreamsKafkaClient streamsKafkaClient = createStreamsKafkaClient();
-        streamsKafkaClient.checkBrokerCompatibility(false);
-    }
-
-    @Test(expected = StreamsException.class)
-    public void shouldRequireBrokerVersions0110OrHigherWhenEosEnabled() {
-        kafkaClient.prepareResponse(new ApiVersionsResponse(Errors.NONE, Collections.singletonList(new ApiVersionsResponse.ApiVersion(ApiKeys.CREATE_TOPICS))));
-        final StreamsKafkaClient streamsKafkaClient = createStreamsKafkaClient();
-        streamsKafkaClient.checkBrokerCompatibility(true);
-    }
-
-    @Test(expected = StreamsException.class)
-    public void shouldThrowStreamsExceptionOnEmptyFetchMetadataResponse() {
-        kafkaClient.prepareResponse(null);
-        final StreamsKafkaClient streamsKafkaClient = createStreamsKafkaClient();
-        streamsKafkaClient.fetchMetadata();
-    }
-
-    @Test(expected = StreamsException.class)
-    public void shouldThrowStreamsExceptionWhenFetchMetadataResponseInconsistent() {
-        kafkaClient.prepareResponse(new ProduceResponse(Collections.<TopicPartition, ProduceResponse.PartitionResponse>emptyMap()));
-        final StreamsKafkaClient streamsKafkaClient = createStreamsKafkaClient();
-        streamsKafkaClient.fetchMetadata();
-    }
-
     private void verifyCorrectTopicConfigs(final StreamsKafkaClient streamsKafkaClient,
                                            final InternalTopicConfig internalTopicConfig,
                                            final Map<String, String> expectedConfigs) {
@@ -216,35 +154,5 @@ public class StreamsKafkaClientTest {
         return new StreamsKafkaClient(StreamsKafkaClient.Config.fromStreamsConfig(streamsConfig),
                                                                              kafkaClient,
                                                                              reporters);
-    }
-
-
-    public static class TestMetricsReporter implements MetricsReporter {
-        static final Map<MetricName, KafkaMetric> METRICS = new HashMap<>();
-
-        @Override
-        public void configure(final Map<String, ?> configs) { }
-
-        @Override
-        public void init(final List<KafkaMetric> metrics) {
-            for (final KafkaMetric metric : metrics) {
-                metricChange(metric);
-            }
-        }
-
-        @Override
-        public void metricChange(final KafkaMetric metric) {
-            METRICS.put(metric.metricName(), metric);
-        }
-
-        @Override
-        public void metricRemoval(final KafkaMetric metric) {
-            METRICS.remove(metric.metricName());
-        }
-
-        @Override
-        public void close() {
-            METRICS.clear();
-        }
     }
 }

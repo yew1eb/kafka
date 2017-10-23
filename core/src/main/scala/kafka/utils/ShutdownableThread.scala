@@ -34,10 +34,6 @@ abstract class ShutdownableThread(val name: String, val isInterruptible: Boolean
     awaitShutdown()
   }
 
-  def isShutdownComplete: Boolean = {
-    shutdownLatch.getCount == 0
-  }
-
   def initiateShutdown(): Boolean = {
     if (isRunning.compareAndSet(true, false)) {
       info("Shutting down")

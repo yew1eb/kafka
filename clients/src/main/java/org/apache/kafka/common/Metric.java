@@ -17,26 +17,18 @@
 package org.apache.kafka.common;
 
 /**
- * A metric tracked for monitoring purposes.
+ * A numerical metric tracked for monitoring purposes
  */
 public interface Metric {
 
     /**
      * A name for this metric
      */
-    MetricName metricName();
+    public MetricName metricName();
 
     /**
-     * The value of the metric as double if the metric is measurable and `0.0` otherwise.
-     *
-     * @deprecated As of 1.0.0, use {@link #metricValue()} instead. This will be removed in a future major release.
+     * The value of the metric
      */
-    @Deprecated
-    double value();
-
-    /**
-     * The value of the metric, which may be measurable or a non-measurable gauge
-     */
-    Object metricValue();
+    public double value();
 
 }

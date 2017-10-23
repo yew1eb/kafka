@@ -16,22 +16,21 @@
  */
 package org.apache.kafka.common.requests;
 
-import org.apache.kafka.common.protocol.types.BoundField;
-import org.apache.kafka.common.protocol.types.Field;
-import org.apache.kafka.common.protocol.types.Schema;
-import org.apache.kafka.common.protocol.types.Struct;
+import static org.apache.kafka.common.protocol.Protocol.RESPONSE_HEADER;
 
 import java.nio.ByteBuffer;
 
-import static org.apache.kafka.common.protocol.types.Type.INT32;
+import org.apache.kafka.common.protocol.Protocol;
+import org.apache.kafka.common.protocol.types.Field;
+import org.apache.kafka.common.protocol.types.Struct;
+
 
 /**
  * A response header in the kafka protocol.
  */
 public class ResponseHeader extends AbstractRequestResponse {
-    public static final Schema SCHEMA = new Schema(
-            new Field("correlation_id", INT32, "The user-supplied value passed in with the request"));
-    private static final BoundField CORRELATION_KEY_FIELD = SCHEMA.get("correlation_id");
+
+    private static final Field CORRELATION_KEY_FIELD = RESPONSE_HEADER.get("correlation_id");
 
     private final int correlationId;
 
@@ -48,7 +47,7 @@ public class ResponseHeader extends AbstractRequestResponse {
     }
 
     public Struct toStruct() {
-        Struct struct = new Struct(SCHEMA);
+        Struct struct = new Struct(Protocol.RESPONSE_HEADER);
         struct.set(CORRELATION_KEY_FIELD, correlationId);
         return struct;
     }
@@ -58,7 +57,7 @@ public class ResponseHeader extends AbstractRequestResponse {
     }
 
     public static ResponseHeader parse(ByteBuffer buffer) {
-        return new ResponseHeader(SCHEMA.read(buffer));
+        return new ResponseHeader(Protocol.RESPONSE_HEADER.read(buffer));
     }
 
 }

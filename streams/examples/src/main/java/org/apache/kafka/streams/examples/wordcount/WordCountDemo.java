@@ -24,7 +24,6 @@ import org.apache.kafka.streams.StreamsConfig;
 import org.apache.kafka.streams.kstream.KStream;
 import org.apache.kafka.streams.kstream.KTable;
 import org.apache.kafka.streams.kstream.KeyValueMapper;
-import org.apache.kafka.streams.kstream.Produced;
 import org.apache.kafka.streams.kstream.ValueMapper;
 
 import java.util.Arrays;
@@ -64,22 +63,22 @@ public class WordCountDemo {
         KStream<String, String> source = builder.stream("streams-plaintext-input");
 
         KTable<String, Long> counts = source
-            .flatMapValues(new ValueMapper<String, Iterable<String>>() {
-                @Override
-                public Iterable<String> apply(String value) {
-                    return Arrays.asList(value.toLowerCase(Locale.getDefault()).split(" "));
-                }
-            })
-            .groupBy(new KeyValueMapper<String, String, String>() {
-                @Override
-                public String apply(String key, String value) {
-                    return value;
-                }
-            })
-            .count();
+                .flatMapValues(new ValueMapper<String, Iterable<String>>() {
+                    @Override
+                    public Iterable<String> apply(String value) {
+                        return Arrays.asList(value.toLowerCase(Locale.getDefault()).split(" "));
+                    }
+                })
+                .groupBy(new KeyValueMapper<String, String, String>() {
+                    @Override
+                    public String apply(String key, String value) {
+                        return value;
+                    }
+                })
+                .count("Counts");
 
         // need to override value serde to Long type
-        counts.toStream().to("streams-wordcount-output", Produced.with(Serdes.String(), Serdes.Long()));
+        counts.to(Serdes.String(), Serdes.Long(), "streams-wordcount-output");
 
         final KafkaStreams streams = new KafkaStreams(builder.build(), props);
         final CountDownLatch latch = new CountDownLatch(1);

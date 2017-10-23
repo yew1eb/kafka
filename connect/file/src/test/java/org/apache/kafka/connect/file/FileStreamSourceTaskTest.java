@@ -21,10 +21,10 @@ import org.apache.kafka.connect.source.SourceRecord;
 import org.apache.kafka.connect.source.SourceTaskContext;
 import org.apache.kafka.connect.storage.OffsetStorageReader;
 import org.easymock.EasyMock;
-import org.easymock.EasyMockSupport;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+import org.powermock.api.easymock.PowerMock;
 
 import java.io.ByteArrayInputStream;
 import java.io.File;
@@ -37,7 +37,7 @@ import java.util.Map;
 
 import static org.junit.Assert.assertEquals;
 
-public class FileStreamSourceTaskTest extends EasyMockSupport {
+public class FileStreamSourceTaskTest {
 
     private static final String TOPIC = "test";
 
@@ -56,8 +56,8 @@ public class FileStreamSourceTaskTest extends EasyMockSupport {
         config.put(FileStreamSourceConnector.FILE_CONFIG, tempFile.getAbsolutePath());
         config.put(FileStreamSourceConnector.TOPIC_CONFIG, TOPIC);
         task = new FileStreamSourceTask();
-        offsetStorageReader = createMock(OffsetStorageReader.class);
-        context = createMock(SourceTaskContext.class);
+        offsetStorageReader = PowerMock.createMock(OffsetStorageReader.class);
+        context = PowerMock.createMock(SourceTaskContext.class);
         task.initialize(context);
     }
 
@@ -66,11 +66,11 @@ public class FileStreamSourceTaskTest extends EasyMockSupport {
         tempFile.delete();
 
         if (verifyMocks)
-            verifyAll();
+            PowerMock.verifyAll();
     }
 
     private void replay() {
-        replayAll();
+        PowerMock.replayAll();
         verifyMocks = true;
     }
 
@@ -164,6 +164,6 @@ public class FileStreamSourceTaskTest extends EasyMockSupport {
 
     private void expectOffsetLookupReturnNone() {
         EasyMock.expect(context.offsetStorageReader()).andReturn(offsetStorageReader);
-        EasyMock.expect(offsetStorageReader.offset(EasyMock.<Map<String, String>>anyObject())).andReturn(null);
+        EasyMock.expect(offsetStorageReader.offset(EasyMock.anyObject(Map.class))).andReturn(null);
     }
 }

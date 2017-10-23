@@ -17,6 +17,8 @@
 
 package kafka.utils.json
 
+import scala.collection._
+
 import com.fasterxml.jackson.databind.{JsonMappingException, JsonNode}
 import com.fasterxml.jackson.databind.node.{ArrayNode, ObjectNode}
 

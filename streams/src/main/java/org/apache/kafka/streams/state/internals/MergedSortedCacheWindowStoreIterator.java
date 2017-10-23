@@ -19,6 +19,7 @@ package org.apache.kafka.streams.state.internals;
 import org.apache.kafka.common.utils.Bytes;
 import org.apache.kafka.streams.KeyValue;
 import org.apache.kafka.streams.state.KeyValueIterator;
+import org.apache.kafka.streams.state.StateSerdes;
 import org.apache.kafka.streams.state.WindowStoreIterator;
 
 import static org.apache.kafka.streams.state.internals.SegmentedCacheFunction.bytesFromCacheKey;
@@ -26,29 +27,34 @@ import static org.apache.kafka.streams.state.internals.SegmentedCacheFunction.by
 /**
  * Merges two iterators. Assumes each of them is sorted by key
  *
+ * @param <V>
  */
-class MergedSortedCacheWindowStoreIterator extends AbstractMergedSortedCacheStoreIterator<Long, Long, byte[], byte[]> implements WindowStoreIterator<byte[]> {
+class MergedSortedCacheWindowStoreIterator<V> extends AbstractMergedSortedCacheStoreIterator<Long, Long, V, byte[]> implements WindowStoreIterator<V> {
 
+    private final StateSerdes<Long, V> serdes;
 
     MergedSortedCacheWindowStoreIterator(final PeekingKeyValueIterator<Bytes, LRUCacheEntry> cacheIterator,
-                                         final KeyValueIterator<Long, byte[]> storeIterator) {
+                                         final KeyValueIterator<Long, byte[]> storeIterator,
+                                         final StateSerdes<Long, V> serdes) {
         super(cacheIterator, storeIterator);
+        this.serdes = serdes;
     }
 
     @Override
-    public KeyValue<Long, byte[]> deserializeStorePair(final KeyValue<Long, byte[]> pair) {
-        return pair;
+    public KeyValue<Long, V> deserializeStorePair(final KeyValue<Long, byte[]> pair) {
+        return KeyValue.pair(pair.key, serdes.valueFrom(pair.value));
     }
 
     @Override
     Long deserializeCacheKey(final Bytes cacheKey) {
         byte[] binaryKey = bytesFromCacheKey(cacheKey);
+
         return WindowStoreUtils.timestampFromBinaryKey(binaryKey);
     }
 
     @Override
-    byte[] deserializeCacheValue(final LRUCacheEntry cacheEntry) {
-        return cacheEntry.value;
+    V deserializeCacheValue(final LRUCacheEntry cacheEntry) {
+        return serdes.valueFrom(cacheEntry.value);
     }
 
     @Override

@@ -33,7 +33,7 @@ import org.apache.kafka.streams.state.WindowStoreIterator;
 
 import java.util.List;
 
-class CachingWindowStore<K, V> extends WrappedStateStore.AbstractStateStore implements WindowStore<Bytes, byte[]>, CachedStateStore<Windowed<K>, V> {
+class CachingWindowStore<K, V> extends WrappedStateStore.AbstractStateStore implements WindowStore<K, V>, CachedStateStore<Windowed<K>, V> {
 
 
     private final WindowStore<Bytes, byte[]> underlying;
@@ -47,9 +47,7 @@ class CachingWindowStore<K, V> extends WrappedStateStore.AbstractStateStore impl
     private ThreadCache cache;
     private InternalProcessorContext context;
     private StateSerdes<K, V> serdes;
-    private StateSerdes<Bytes, byte[]> bytesSerdes;
     private CacheFlushListener<Windowed<K>, V> flushListener;
-    private boolean sendOldValues;
     private final SegmentedCacheFunction cacheFunction;
 
     CachingWindowStore(final WindowStore<Bytes, byte[]> underlying,
@@ -75,14 +73,10 @@ class CachingWindowStore<K, V> extends WrappedStateStore.AbstractStateStore impl
     @SuppressWarnings("unchecked")
     private void initInternal(final ProcessorContext context) {
         this.context = (InternalProcessorContext) context;
-        final String topic = ProcessorStateManager.storeChangelogTopic(context.applicationId(), underlying.name());
-        serdes = new StateSerdes<>(topic,
+        serdes = new StateSerdes<>(ProcessorStateManager.storeChangelogTopic(context.applicationId(), underlying.name()),
                                    keySerde == null ? (Serde<K>) context.keySerde() : keySerde,
                                    valueSerde == null ? (Serde<V>) context.valueSerde() : valueSerde);
 
-        bytesSerdes = new StateSerdes<>(topic,
-                                        Serdes.Bytes(),
-                                        Serdes.ByteArray());
         name = context.taskId() + "-" + underlying.name();
         cache = this.context.getCache();
 
@@ -111,20 +105,16 @@ class CachingWindowStore<K, V> extends WrappedStateStore.AbstractStateStore impl
             final RecordContext current = context.recordContext();
             context.setRecordContext(entry.recordContext());
             try {
-                final V oldValue = sendOldValues ? fetchPrevious(key, windowedKey.window().start()) : null;
                 flushListener.apply(windowedKey,
-                                    serdes.valueFrom(entry.newValue()), oldValue);
+                                    serdes.valueFrom(entry.newValue()), fetchPrevious(key, windowedKey.window().start()));
             } finally {
                 context.setRecordContext(current);
             }
         }
     }
 
-    public void setFlushListener(final CacheFlushListener<Windowed<K>, V> flushListener,
-                                 final boolean sendOldValues) {
-
+    public void setFlushListener(CacheFlushListener<Windowed<K>, V> flushListener) {
         this.flushListener = flushListener;
-        this.sendOldValues = sendOldValues;
     }
 
     @Override
@@ -141,67 +131,72 @@ class CachingWindowStore<K, V> extends WrappedStateStore.AbstractStateStore impl
     }
 
     @Override
-    public synchronized void put(final Bytes key, final byte[] value) {
+    public synchronized void put(final K key, final V value) {
         put(key, value, context.timestamp());
     }
 
     @Override
-    public synchronized void put(final Bytes key, final byte[] value, final long timestamp) {
+    public synchronized void put(final K key, final V value, final long timestamp) {
         // since this function may not access the underlying inner store, we need to validate
         // if store is open outside as well.
         validateStoreOpen();
 
-        final Bytes keyBytes = WindowStoreUtils.toBinaryKey(key, timestamp, 0, bytesSerdes);
-        final LRUCacheEntry entry = new LRUCacheEntry(value, true, context.offset(),
+        final Bytes keyBytes = WindowStoreUtils.toBinaryKey(key, timestamp, 0, serdes);
+        final LRUCacheEntry entry = new LRUCacheEntry(serdes.rawValue(value), true, context.offset(),
                                                       timestamp, context.partition(), context.topic());
         cache.put(name, cacheFunction.cacheKey(keyBytes), entry);
     }
 
     @Override
-    public synchronized WindowStoreIterator<byte[]> fetch(final Bytes key, final long timeFrom, final long timeTo) {
+    public synchronized WindowStoreIterator<V> fetch(final K key, final long timeFrom, final long timeTo) {
         // since this function may not access the underlying inner store, we need to validate
         // if store is open outside as well.
         validateStoreOpen();
 
-        final WindowStoreIterator<byte[]> underlyingIterator = underlying.fetch(key, timeFrom, timeTo);
+        final Bytes keyBytes = Bytes.wrap(serdes.rawKey(key));
+        final WindowStoreIterator<byte[]> underlyingIterator = underlying.fetch(keyBytes, timeFrom, timeTo);
 
-        final Bytes cacheKeyFrom = cacheFunction.cacheKey(keySchema.lowerRangeFixedSize(key, timeFrom));
-        final Bytes cacheKeyTo = cacheFunction.cacheKey(keySchema.upperRangeFixedSize(key, timeTo));
+        final Bytes cacheKeyFrom = cacheFunction.cacheKey(keySchema.lowerRangeFixedSize(keyBytes, timeFrom));
+        final Bytes cacheKeyTo = cacheFunction.cacheKey(keySchema.upperRangeFixedSize(keyBytes, timeTo));
         final ThreadCache.MemoryLRUCacheBytesIterator cacheIterator = cache.range(name, cacheKeyFrom, cacheKeyTo);
 
-        final HasNextCondition hasNextCondition = keySchema.hasNextCondition(key,
-                                                                             key,
+        final HasNextCondition hasNextCondition = keySchema.hasNextCondition(keyBytes,
+                                                                             keyBytes,
                                                                              timeFrom,
                                                                              timeTo);
         final PeekingKeyValueIterator<Bytes, LRUCacheEntry> filteredCacheIterator = new FilteredCacheIterator(
             cacheIterator, hasNextCondition, cacheFunction
         );
 
-        return new MergedSortedCacheWindowStoreIterator(filteredCacheIterator, underlyingIterator);
+        return new MergedSortedCacheWindowStoreIterator<>(filteredCacheIterator,
+                                                          underlyingIterator,
+                                                          new StateSerdes<>(serdes.topic(), Serdes.Long(), serdes.valueSerde()));
     }
 
     @Override
-    public KeyValueIterator<Windowed<Bytes>, byte[]> fetch(final Bytes from, final Bytes to, final long timeFrom, final long timeTo) {
+    public KeyValueIterator<Windowed<K>, V> fetch(final K from, final K to, final long timeFrom, final long timeTo) {
         // since this function may not access the underlying inner store, we need to validate
         // if store is open outside as well.
         validateStoreOpen();
 
-        final KeyValueIterator<Windowed<Bytes>, byte[]> underlyingIterator = underlying.fetch(from, to, timeFrom, timeTo);
+        final Bytes keyFromBytes = Bytes.wrap(serdes.rawKey(from));
+        final Bytes keyToBytes = Bytes.wrap(serdes.rawKey(to));
+        final KeyValueIterator<Windowed<Bytes>, byte[]> underlyingIterator = underlying.fetch(keyFromBytes, keyToBytes, timeFrom, timeTo);
 
-        final Bytes cacheKeyFrom = cacheFunction.cacheKey(keySchema.lowerRange(from, timeFrom));
-        final Bytes cacheKeyTo = cacheFunction.cacheKey(keySchema.upperRange(to, timeTo));
+        final Bytes cacheKeyFrom = cacheFunction.cacheKey(keySchema.lowerRange(keyFromBytes, timeFrom));
+        final Bytes cacheKeyTo = cacheFunction.cacheKey(keySchema.upperRange(keyToBytes, timeTo));
         final ThreadCache.MemoryLRUCacheBytesIterator cacheIterator = cache.range(name, cacheKeyFrom, cacheKeyTo);
 
-        final HasNextCondition hasNextCondition = keySchema.hasNextCondition(from,
-                                                                             to,
+        final HasNextCondition hasNextCondition = keySchema.hasNextCondition(keyFromBytes,
+                                                                             keyToBytes,
                                                                              timeFrom,
                                                                              timeTo);
         final PeekingKeyValueIterator<Bytes, LRUCacheEntry> filteredCacheIterator = new FilteredCacheIterator(cacheIterator, hasNextCondition, cacheFunction);
 
-        return new MergedSortedCacheWindowStoreKeyValueIterator(
+        return new MergedSortedCacheWindowStoreKeyValueIterator<>(
             filteredCacheIterator,
             underlyingIterator,
-            bytesSerdes,
+            serdes,
             windowSize,
             cacheFunction
         );

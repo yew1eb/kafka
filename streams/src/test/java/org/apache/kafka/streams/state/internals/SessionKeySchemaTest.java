@@ -51,14 +51,14 @@ public class SessionKeySchemaTest {
     }
 
     @Test
-    public void shouldFetchExactKeysSkippingLongerKeys() {
+    public void shouldFetchExactKeysSkippingLongerKeys() throws Exception {
         final Bytes key = Bytes.wrap(new byte[]{0});
         final List<Integer> result = getValues(sessionKeySchema.hasNextCondition(key, key, 0, Long.MAX_VALUE));
         assertThat(result, equalTo(Arrays.asList(2, 4)));
     }
 
     @Test
-    public void shouldFetchExactKeySkippingShorterKeys() {
+    public void shouldFetchExactKeySkippingShorterKeys() throws Exception {
         final Bytes key = Bytes.wrap(new byte[]{0, 0});
         final HasNextCondition hasNextCondition = sessionKeySchema.hasNextCondition(key, key, 0, Long.MAX_VALUE);
         final List<Integer> results = getValues(hasNextCondition);
@@ -66,7 +66,7 @@ public class SessionKeySchemaTest {
     }
 
     @Test
-    public void testUpperBoundWithLargeTimestamps() {
+    public void testUpperBoundWithLargeTimestamps() throws Exception {
         Bytes upper = sessionKeySchema.upperRange(Bytes.wrap(new byte[]{0xA, 0xB, 0xC}), Long.MAX_VALUE);
 
         assertThat(
@@ -97,7 +97,7 @@ public class SessionKeySchemaTest {
     }
 
     @Test
-    public void testUpperBoundWithKeyBytesLargerThanFirstTimestampByte() {
+    public void testUpperBoundWithKeyBytesLargerThanFirstTimestampByte() throws Exception {
         Bytes upper = sessionKeySchema.upperRange(Bytes.wrap(new byte[]{0xA, (byte) 0x8F, (byte) 0x9F}), Long.MAX_VALUE);
 
         assertThat(
@@ -117,7 +117,7 @@ public class SessionKeySchemaTest {
     }
 
     @Test
-    public void testUpperBoundWithZeroTimestamp() {
+    public void testUpperBoundWithZeroTimestamp() throws Exception {
         Bytes upper = sessionKeySchema.upperRange(Bytes.wrap(new byte[]{0xA, 0xB, 0xC}), 0);
 
         assertThat(upper, equalTo(SessionKeySerde.bytesToBinary(
@@ -126,13 +126,13 @@ public class SessionKeySchemaTest {
     }
 
     @Test
-    public void testLowerBoundWithZeroTimestamp() {
+    public void testLowerBoundWithZeroTimestamp() throws Exception {
         Bytes lower = sessionKeySchema.lowerRange(Bytes.wrap(new byte[]{0xA, 0xB, 0xC}), 0);
         assertThat(lower, equalTo(SessionKeySerde.bytesToBinary(new Windowed<>(Bytes.wrap(new byte[]{0xA, 0xB, 0xC}), new SessionWindow(0, 0)))));
     }
 
     @Test
-    public void testLowerBoundMatchesTrailingZeros() {
+    public void testLowerBoundMatchesTrailingZeros() throws Exception {
         Bytes lower = sessionKeySchema.lowerRange(Bytes.wrap(new byte[]{0xA, 0xB, 0xC}), Long.MAX_VALUE);
 
         assertThat(

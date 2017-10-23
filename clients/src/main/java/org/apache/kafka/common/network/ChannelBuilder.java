@@ -33,6 +33,7 @@ public interface ChannelBuilder extends AutoCloseable {
      */
     void configure(Map<String, ?> configs) throws KafkaException;
 
+
     /**
      * returns a Channel with TransportLayer and Authenticator configured.
      * @param  id  channel id
@@ -43,10 +44,10 @@ public interface ChannelBuilder extends AutoCloseable {
      */
     KafkaChannel buildChannel(String id, SelectionKey key, int maxReceiveSize, MemoryPool memoryPool) throws KafkaException;
 
+
     /**
      * Closes ChannelBuilder
      */
-    @Override
     void close();
 
 }

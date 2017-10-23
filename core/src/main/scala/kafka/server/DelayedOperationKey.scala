@@ -17,6 +17,7 @@
 
 package kafka.server
 
+import kafka.common.TopicAndPartition
 import org.apache.kafka.common.TopicPartition
 
 /**

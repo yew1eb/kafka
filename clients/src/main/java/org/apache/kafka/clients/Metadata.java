@@ -20,7 +20,6 @@ import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.internals.ClusterResourceListeners;
 import org.apache.kafka.common.Node;
 import org.apache.kafka.common.PartitionInfo;
-import org.apache.kafka.common.errors.AuthenticationException;
 import org.apache.kafka.common.errors.TimeoutException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -60,7 +59,6 @@ public final class Metadata {
     private int version;
     private long lastRefreshMs;
     private long lastSuccessfulRefreshMs;
-    private AuthenticationException authenticationException;
     private Cluster cluster;
     private boolean needUpdate;
     /* Topics with expiry time */
@@ -114,7 +112,6 @@ public final class Metadata {
      * will be reset on the next update.
      */
     public synchronized void add(String topic) {
-        Objects.requireNonNull(topic, "topic cannot be null");
         if (topics.put(topic, TOPIC_EXPIRY_NEEDS_UPDATE) == null) {
             requestUpdateForNewTopics();
         }
@@ -148,31 +145,15 @@ public final class Metadata {
     }
 
     /**
-     * If any non-retriable authentication exceptions were encountered during
-     * metadata update, clear and return the exception.
-     */
-    public synchronized AuthenticationException getAndClearAuthenticationException() {
-        if (authenticationException != null) {
-            AuthenticationException exception = authenticationException;
-            authenticationException = null;
-            return exception;
-        } else
-            return null;
-    }
-
-    /**
      * Wait for metadata update until the current version is larger than the last version we know of
      */
     public synchronized void awaitUpdate(final int lastVersion, final long maxWaitMs) throws InterruptedException {
         if (maxWaitMs < 0) {
-            throw new IllegalArgumentException("Max time to wait for metadata updates should not be < 0 milliseconds");
+            throw new IllegalArgumentException("Max time to wait for metadata updates should not be < 0 milli seconds");
         }
         long begin = System.currentTimeMillis();
         long remainingWaitMs = maxWaitMs;
         while (this.version <= lastVersion) {
-            AuthenticationException ex = getAndClearAuthenticationException();
-            if (ex != null)
-                throw ex;
             if (remainingWaitMs != 0)
                 wait(remainingWaitMs);
             long elapsed = System.currentTimeMillis() - begin;
@@ -274,11 +255,8 @@ public final class Metadata {
      * Record an attempt to update the metadata that failed. We need to keep track of this
      * to avoid retrying immediately.
      */
-    public synchronized void failedUpdate(long now, AuthenticationException authenticationException) {
+    public synchronized void failedUpdate(long now) {
         this.lastRefreshMs = now;
-        this.authenticationException = authenticationException;
-        if (authenticationException != null)
-            this.notifyAll();
     }
 
     /**

@@ -19,7 +19,7 @@ package org.apache.kafka.common.metrics;
 /**
  * A measurable quantity that can be registered as a metric
  */
-public interface Measurable extends MetricValueProvider<Double> {
+public interface Measurable {
 
     /**
      * Measure this quantity and return the result as a double
@@ -27,6 +27,6 @@ public interface Measurable extends MetricValueProvider<Double> {
      * @param now The POSIX time in milliseconds the measurement is being taken
      * @return The measured value
      */
-    double measure(MetricConfig config, long now);
+    public double measure(MetricConfig config, long now);
 
 }

@@ -37,7 +37,7 @@ class HighwatermarkPersistenceTest {
   val zkUtils = EasyMock.createMock(classOf[ZkUtils])
   val logManagers = configs map { config =>
     TestUtils.createLogManager(
-      logDirs = config.logDirs.map(new File(_)),
+      logDirs = config.logDirs.map(new File(_)).toArray,
       cleanerConfig = CleanerConfig())
   }
 
@@ -47,7 +47,7 @@ class HighwatermarkPersistenceTest {
 
   @After
   def teardown() {
-    for (manager <- logManagers; dir <- manager.liveLogDirs)
+    for(manager <- logManagers; dir <- manager.liveLogDirs)
       Utils.delete(dir)
   }
 
@@ -63,7 +63,7 @@ class HighwatermarkPersistenceTest {
     val time = new MockTime
     // create replica manager
     val replicaManager = new ReplicaManager(configs.head, metrics, time, zkUtils, scheduler,
-      logManagers.head, new AtomicBoolean(false), QuotaFactory.instantiate(configs.head, metrics, time),
+      logManagers.head, new AtomicBoolean(false), QuotaFactory.instantiate(configs.head, metrics, time).follower,
       new BrokerTopicStats, new MetadataCache(configs.head.brokerId), logDirFailureChannels.head)
     replicaManager.startup()
     try {
@@ -108,7 +108,7 @@ class HighwatermarkPersistenceTest {
     val time = new MockTime
     // create replica manager
     val replicaManager = new ReplicaManager(configs.head, metrics, time, zkUtils,
-      scheduler, logManagers.head, new AtomicBoolean(false), QuotaFactory.instantiate(configs.head, metrics, time),
+      scheduler, logManagers.head, new AtomicBoolean(false), QuotaFactory.instantiate(configs.head, metrics, time).follower,
       new BrokerTopicStats, new MetadataCache(configs.head.brokerId), logDirFailureChannels.head)
     replicaManager.startup()
     try {

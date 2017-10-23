@@ -145,7 +145,7 @@ class LogSegment(val log: FileRecords,
   private def updateProducerState(producerStateManager: ProducerStateManager, batch: RecordBatch): Unit = {
     if (batch.hasProducerId) {
       val producerId = batch.producerId
-      val appendInfo = producerStateManager.prepareUpdate(producerId, isFromClient = false)
+      val appendInfo = producerStateManager.prepareUpdate(producerId, loadingFromLog = true)
       val maybeCompletedTxn = appendInfo.append(batch)
       producerStateManager.update(appendInfo)
       maybeCompletedTxn.foreach { completedTxn =>
@@ -377,17 +377,6 @@ class LogSegment(val log: FileRecords,
       timeIndex.flush()
       txnIndex.flush()
     }
-  }
-
-  /**
-   * Update the directory reference for the log and indices in this segment. This would typically be called after a
-   * directory is renamed.
-   */
-  def updateDir(dir: File): Unit = {
-    log.setFile(new File(dir, log.file.getName))
-    index.file = new File(dir, index.file.getName)
-    timeIndex.file = new File(dir, timeIndex.file.getName)
-    txnIndex.file = new File(dir, txnIndex.file.getName)
   }
 
   /**

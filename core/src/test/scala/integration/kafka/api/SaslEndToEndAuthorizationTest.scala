@@ -19,10 +19,9 @@ package kafka.api
 import java.util.Properties
 
 import kafka.utils.TestUtils
-import kafka.utils.Implicits._
+import org.apache.kafka.common.protocol.SecurityProtocol
 import org.apache.kafka.common.config.SaslConfigs
-import org.apache.kafka.common.security.auth.SecurityProtocol
-import org.apache.kafka.common.errors.TopicAuthorizationException
+import org.apache.kafka.common.errors.GroupAuthorizationException
 import org.junit.{Before, Test}
 
 import scala.collection.immutable.List
@@ -59,7 +58,7 @@ abstract class SaslEndToEndAuthorizationTest extends EndToEndAuthorizationTest {
     val consumer1 = consumers.head
 
     val consumer2Config = new Properties
-    consumer2Config ++= consumerConfig
+    consumer2Config.putAll(consumerConfig)
     // consumer2 retrieves its credentials from the static JAAS configuration, so we test also this path
     consumer2Config.remove(SaslConfigs.SASL_JAAS_CONFIG)
 
@@ -77,9 +76,9 @@ abstract class SaslEndToEndAuthorizationTest extends EndToEndAuthorizationTest {
 
     try {
       consumeRecords(consumer2)
-      fail("Expected exception as consumer2 has no access to topic")
+      fail("Expected exception as consumer2 has no access to group")
     } catch {
-      case _: TopicAuthorizationException => //expected
+      case _: GroupAuthorizationException => //expected
     }
   }
 }

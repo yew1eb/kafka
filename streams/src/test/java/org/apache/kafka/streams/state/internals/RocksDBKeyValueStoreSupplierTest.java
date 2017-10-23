@@ -20,7 +20,6 @@ import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.common.serialization.Serializer;
-import org.apache.kafka.common.utils.LogContext;
 import org.apache.kafka.streams.StreamsMetrics;
 import org.apache.kafka.streams.processor.internals.MockStreamsMetrics;
 import org.apache.kafka.streams.state.KeyValueStore;
@@ -43,7 +42,7 @@ import static org.junit.Assert.assertTrue;
 public class RocksDBKeyValueStoreSupplierTest {
 
     private static final String STORE_NAME = "name";
-    private final ThreadCache cache = new ThreadCache(new LogContext("test "), 1024, new MockStreamsMetrics(new Metrics()));
+    private final ThreadCache cache = new ThreadCache("test", 1024, new MockStreamsMetrics(new Metrics()));
     private final MockProcessorContext context = new MockProcessorContext(TestUtils.tempDirectory(),
                                                                           Serdes.String(),
                                                                           Serdes.String(),
@@ -58,7 +57,7 @@ public class RocksDBKeyValueStoreSupplierTest {
     }
 
     @Test
-    public void shouldCreateLoggingEnabledStoreWhenStoreLogged() {
+    public void shouldCreateLoggingEnabledStoreWhenStoreLogged() throws Exception {
         store = createStore(true, false);
         final List<ProducerRecord> logged = new ArrayList<>();
         final NoOpRecordCollector collector = new NoOpRecordCollector() {
@@ -85,7 +84,7 @@ public class RocksDBKeyValueStoreSupplierTest {
     }
 
     @Test
-    public void shouldNotBeLoggingEnabledStoreWhenLoggingNotEnabled() {
+    public void shouldNotBeLoggingEnabledStoreWhenLoggingNotEnabled() throws Exception {
         store = createStore(false, false);
         final List<ProducerRecord> logged = new ArrayList<>();
         final NoOpRecordCollector collector = new NoOpRecordCollector() {
@@ -97,7 +96,7 @@ public class RocksDBKeyValueStoreSupplierTest {
                                     Long timestamp,
                                     Serializer<K> keySerializer,
                                     Serializer<V> valueSerializer) {
-                logged.add(new ProducerRecord<>(topic, partition, timestamp, key, value));
+                logged.add(new ProducerRecord<K, V>(topic, partition, timestamp, key, value));
             }
         };
         final MockProcessorContext context = new MockProcessorContext(TestUtils.tempDirectory(),
@@ -112,30 +111,30 @@ public class RocksDBKeyValueStoreSupplierTest {
     }
 
     @Test
-    public void shouldHaveCachedKeyValueStoreWhenCachingEnabled() {
+    public void shouldReturnCachedKeyValueStoreWhenCachingEnabled() throws Exception {
         store = createStore(false, true);
         store.init(context, store);
         context.setTime(1);
         store.put("a", "b");
         store.put("b", "c");
-        assertThat(((WrappedStateStore) store).wrappedStore(), is(instanceOf(CachingKeyValueStore.class)));
+        assertThat(store, is(instanceOf(CachingKeyValueStore.class)));
         assertThat(cache.size(), is(2L));
     }
 
     @Test
-    public void shouldReturnMeteredStoreWhenCachingAndLoggingDisabled() {
+    public void shouldReturnMeteredStoreWhenCachingAndLoggingDisabled() throws Exception {
         store = createStore(false, false);
-        assertThat(store, is(instanceOf(MeteredKeyValueBytesStore.class)));
+        assertThat(store, is(instanceOf(MeteredKeyValueStore.class)));
     }
 
     @Test
-    public void shouldReturnMeteredStoreWhenCachingDisabled() {
+    public void shouldReturnMeteredStoreWhenCachingDisabled() throws Exception {
         store = createStore(true, false);
-        assertThat(store, is(instanceOf(MeteredKeyValueBytesStore.class)));
+        assertThat(store, is(instanceOf(MeteredKeyValueStore.class)));
     }
 
     @Test
-    public void shouldHaveMeteredStoreWhenCached() {
+    public void shouldHaveMeteredStoreWhenCached() throws Exception {
         store = createStore(false, true);
         store.init(context, store);
         final StreamsMetrics metrics = context.metrics();
@@ -143,7 +142,7 @@ public class RocksDBKeyValueStoreSupplierTest {
     }
 
     @Test
-    public void shouldHaveMeteredStoreWhenLogged() {
+    public void shouldHaveMeteredStoreWhenLogged() throws Exception {
         store = createStore(true, false);
         store.init(context, store);
         final StreamsMetrics metrics = context.metrics();

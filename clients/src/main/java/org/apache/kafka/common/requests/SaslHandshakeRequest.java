@@ -16,17 +16,14 @@
  */
 package org.apache.kafka.common.requests;
 
-import org.apache.kafka.common.protocol.ApiKeys;
-import org.apache.kafka.common.protocol.Errors;
-import org.apache.kafka.common.protocol.types.Field;
-import org.apache.kafka.common.protocol.types.Schema;
-import org.apache.kafka.common.protocol.types.Struct;
-
 import java.nio.ByteBuffer;
 import java.util.Collections;
 import java.util.List;
 
-import static org.apache.kafka.common.protocol.types.Type.STRING;
+import org.apache.kafka.common.protocol.ApiKeys;
+import org.apache.kafka.common.protocol.Errors;
+import org.apache.kafka.common.protocol.types.Struct;
+
 
 /**
  * Request from SASL client containing client SASL mechanism.
@@ -38,17 +35,8 @@ import static org.apache.kafka.common.protocol.types.Type.STRING;
  * making it easy to distinguish from a GSSAPI packet.
  */
 public class SaslHandshakeRequest extends AbstractRequest {
-    private static final String MECHANISM_KEY_NAME = "mechanism";
 
-    private static final Schema SASL_HANDSHAKE_REQUEST_V0 = new Schema(
-            new Field("mechanism", STRING, "SASL Mechanism chosen by the client."));
-
-    // SASL_HANDSHAKE_REQUEST_V1 added to support SASL_AUTHENTICATE request to improve diagnostics
-    private static final Schema SASL_HANDSHAKE_REQUEST_V1 = SASL_HANDSHAKE_REQUEST_V0;
-
-    public static Schema[] schemaVersions() {
-        return new Schema[]{SASL_HANDSHAKE_REQUEST_V0, SASL_HANDSHAKE_REQUEST_V1};
-    }
+    public static final String MECHANISM_KEY_NAME = "mechanism";
 
     private final String mechanism;
 
@@ -62,7 +50,7 @@ public class SaslHandshakeRequest extends AbstractRequest {
 
         @Override
         public SaslHandshakeRequest build(short version) {
-            return new SaslHandshakeRequest(mechanism, version);
+            return new SaslHandshakeRequest(mechanism);
         }
 
         @Override
@@ -76,11 +64,7 @@ public class SaslHandshakeRequest extends AbstractRequest {
     }
 
     public SaslHandshakeRequest(String mechanism) {
-        this(mechanism, ApiKeys.SASL_HANDSHAKE.latestVersion());
-    }
-
-    public SaslHandshakeRequest(String mechanism, short version) {
-        super(version);
+        super(ApiKeys.SASL_HANDSHAKE.latestVersion());
         this.mechanism = mechanism;
     }
 
@@ -98,7 +82,6 @@ public class SaslHandshakeRequest extends AbstractRequest {
         short versionId = version();
         switch (versionId) {
             case 0:
-            case 1:
                 List<String> enabledMechanisms = Collections.emptyList();
                 return new SaslHandshakeResponse(Errors.forException(e), enabledMechanisms);
             default:

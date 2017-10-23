@@ -19,7 +19,7 @@ package kafka.server
 
 import java.util.concurrent._
 import java.util.concurrent.atomic._
-import java.util.concurrent.locks.{Lock, ReentrantLock, ReentrantReadWriteLock}
+import java.util.concurrent.locks.ReentrantReadWriteLock
 
 import com.yammer.metrics.core.Gauge
 import kafka.metrics.KafkaMetricsGroup
@@ -43,12 +43,9 @@ import scala.collection.mutable.ListBuffer
  *
  * A subclass of DelayedOperation needs to provide an implementation of both onComplete() and tryComplete().
  */
-abstract class DelayedOperation(override val delayMs: Long,
-    lockOpt: Option[Lock] = None) extends TimerTask with Logging {
+abstract class DelayedOperation(override val delayMs: Long) extends TimerTask with Logging {
 
   private val completed = new AtomicBoolean(false)
-  // Visible for testing
-  private[server] val lock: Lock = lockOpt.getOrElse(new ReentrantLock)
 
   /*
    * Force completing the delayed operation, if not already completed.
@@ -99,18 +96,13 @@ abstract class DelayedOperation(override val delayMs: Long,
   def tryComplete(): Boolean
 
   /**
-   * Thread-safe variant of tryComplete() that attempts completion only if the lock can be acquired
-   * without blocking.
+   * Thread-safe variant of tryComplete(). This can be overridden if the operation provides its
+   * own synchronization.
    */
-  private[server] def maybeTryComplete(): Boolean = {
-    if (lock.tryLock()) {
-      try {
-        tryComplete()
-      } finally {
-        lock.unlock()
-      }
-    } else
-      false
+  def safeTryComplete(): Boolean = {
+    synchronized {
+      tryComplete()
+    }
   }
 
   /*
@@ -204,9 +196,7 @@ final class DelayedOperationPurgatory[T <: DelayedOperation](purgatoryName: Stri
     // operation is unnecessarily added for watch. However, this is a less severe issue since the
     // expire reaper will clean it up periodically.
 
-    // At this point the only thread that can attempt this operation is this current thread
-    // Hence it is safe to tryComplete() without a lock
-    var isCompletedByMe = operation.tryComplete()
+    var isCompletedByMe = operation.safeTryComplete()
     if (isCompletedByMe)
       return true
 
@@ -223,7 +213,7 @@ final class DelayedOperationPurgatory[T <: DelayedOperation](purgatoryName: Stri
       }
     }
 
-    isCompletedByMe = operation.maybeTryComplete()
+    isCompletedByMe = operation.safeTryComplete()
     if (isCompletedByMe)
       return true
 
@@ -345,7 +335,7 @@ final class DelayedOperationPurgatory[T <: DelayedOperation](purgatoryName: Stri
         if (curr.isCompleted) {
           // another thread has completed this operation, just remove it
           iter.remove()
-        } else if (curr.maybeTryComplete()) {
+        } else if (curr.safeTryComplete()) {
           iter.remove()
           completed += 1
         }
@@ -359,7 +349,7 @@ final class DelayedOperationPurgatory[T <: DelayedOperation](purgatoryName: Stri
 
     def cancel(): List[T] = {
       val iter = operations.iterator()
-      val cancelled = new ListBuffer[T]()
+      var cancelled = new ListBuffer[T]()
       while (iter.hasNext) {
         val curr = iter.next()
         curr.cancel()

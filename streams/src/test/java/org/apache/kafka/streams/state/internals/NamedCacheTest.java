@@ -45,7 +45,7 @@ public class NamedCacheTest {
     private final String taskIDString = "0.0";
     private final String underlyingStoreName = "storeName";
     @Before
-    public void setUp() {
+    public void setUp() throws Exception {
         streamMetrics = new MockStreamsMetrics(new Metrics());
         cache = new NamedCache(taskIDString + "-" + underlyingStoreName, streamMetrics);
     }
@@ -83,7 +83,7 @@ public class NamedCacheTest {
                 groupName, "The maximum cache hit ratio of " + entityName, metricTags)));
     }
     @Test
-    public void testMetrics() {
+    public void testMetrics() throws Exception {
         final String scope = "record-cache";
         final String entityName = cache.name();
         final String opName = "hitRatio";
@@ -103,7 +103,7 @@ public class NamedCacheTest {
     }
 
     @Test
-    public void shouldKeepTrackOfSize() {
+    public void shouldKeepTrackOfSize() throws Exception {
         final LRUCacheEntry value = new LRUCacheEntry(new byte[]{0});
         cache.put(Bytes.wrap(new byte[]{0}), value);
         cache.put(Bytes.wrap(new byte[]{1}), value);
@@ -114,7 +114,7 @@ public class NamedCacheTest {
     }
 
     @Test
-    public void shouldPutGet() {
+    public void shouldPutGet() throws Exception {
         cache.put(Bytes.wrap(new byte[]{0}), new LRUCacheEntry(new byte[]{10}));
         cache.put(Bytes.wrap(new byte[]{1}), new LRUCacheEntry(new byte[]{11}));
         cache.put(Bytes.wrap(new byte[]{2}), new LRUCacheEntry(new byte[]{12}));
@@ -126,7 +126,7 @@ public class NamedCacheTest {
     }
 
     @Test
-    public void shouldPutIfAbsent() {
+    public void shouldPutIfAbsent() throws Exception {
         cache.put(Bytes.wrap(new byte[]{0}), new LRUCacheEntry(new byte[]{10}));
         cache.putIfAbsent(Bytes.wrap(new byte[]{0}), new LRUCacheEntry(new byte[]{20}));
         cache.putIfAbsent(Bytes.wrap(new byte[]{1}), new LRUCacheEntry(new byte[]{30}));
@@ -136,7 +136,7 @@ public class NamedCacheTest {
     }
 
     @Test
-    public void shouldDeleteAndUpdateSize() {
+    public void shouldDeleteAndUpdateSize() throws Exception {
         cache.put(Bytes.wrap(new byte[]{0}), new LRUCacheEntry(new byte[]{10}));
         final LRUCacheEntry deleted = cache.delete(Bytes.wrap(new byte[]{0}));
         assertArrayEquals(new byte[] {10}, deleted.value);
@@ -144,7 +144,7 @@ public class NamedCacheTest {
     }
 
     @Test
-    public void shouldPutAll() {
+    public void shouldPutAll() throws Exception {
         cache.putAll(Arrays.asList(KeyValue.pair(new byte[] {0}, new LRUCacheEntry(new byte[]{0})),
                                    KeyValue.pair(new byte[] {1}, new LRUCacheEntry(new byte[]{1})),
                                    KeyValue.pair(new byte[] {2}, new LRUCacheEntry(new byte[]{2}))));
@@ -155,7 +155,7 @@ public class NamedCacheTest {
     }
 
     @Test
-    public void shouldOverwriteAll() {
+    public void shouldOverwriteAll() throws Exception {
         cache.putAll(Arrays.asList(KeyValue.pair(new byte[] {0}, new LRUCacheEntry(new byte[]{0})),
             KeyValue.pair(new byte[] {0}, new LRUCacheEntry(new byte[]{1})),
             KeyValue.pair(new byte[] {0}, new LRUCacheEntry(new byte[]{2}))));
@@ -165,7 +165,7 @@ public class NamedCacheTest {
     }
 
     @Test
-    public void shouldEvictEldestEntry() {
+    public void shouldEvictEldestEntry() throws Exception {
         cache.put(Bytes.wrap(new byte[]{0}), new LRUCacheEntry(new byte[]{10}));
         cache.put(Bytes.wrap(new byte[]{1}), new LRUCacheEntry(new byte[]{20}));
         cache.put(Bytes.wrap(new byte[]{2}), new LRUCacheEntry(new byte[]{30}));
@@ -176,7 +176,7 @@ public class NamedCacheTest {
     }
 
     @Test
-    public void shouldFlushDirtEntriesOnEviction() {
+    public void shouldFlushDirtEntriesOnEviction() throws Exception {
         final List<ThreadCache.DirtyEntry> flushed = new ArrayList<>();
         cache.put(Bytes.wrap(new byte[]{0}), new LRUCacheEntry(new byte[]{10}, true, 0, 0, 0, ""));
         cache.put(Bytes.wrap(new byte[]{1}), new LRUCacheEntry(new byte[]{20}));
@@ -200,7 +200,7 @@ public class NamedCacheTest {
     }
 
     @Test
-    public void shouldGetRangeIteratorOverKeys() {
+    public void shouldGetRangeIteratorOverKeys() throws Exception {
         cache.put(Bytes.wrap(new byte[]{0}), new LRUCacheEntry(new byte[]{10}, true, 0, 0, 0, ""));
         cache.put(Bytes.wrap(new byte[]{1}), new LRUCacheEntry(new byte[]{20}));
         cache.put(Bytes.wrap(new byte[]{2}), new LRUCacheEntry(new byte[]{30}, true, 0, 0, 0, ""));
@@ -212,7 +212,7 @@ public class NamedCacheTest {
     }
 
     @Test
-    public void shouldGetIteratorOverAllKeys() {
+    public void shouldGetIteratorOverAllKeys() throws Exception {
         cache.put(Bytes.wrap(new byte[]{0}), new LRUCacheEntry(new byte[]{10}, true, 0, 0, 0, ""));
         cache.put(Bytes.wrap(new byte[]{1}), new LRUCacheEntry(new byte[]{20}));
         cache.put(Bytes.wrap(new byte[]{2}), new LRUCacheEntry(new byte[]{30}, true, 0, 0, 0, ""));
@@ -225,18 +225,18 @@ public class NamedCacheTest {
     }
 
     @Test
-    public void shouldNotThrowNullPointerWhenCacheIsEmptyAndEvictionCalled() {
+    public void shouldNotThrowNullPointerWhenCacheIsEmptyAndEvictionCalled() throws Exception {
         cache.evict();
     }
 
     @Test(expected = IllegalStateException.class)
-    public void shouldThrowIllegalStateExceptionWhenTryingToOverwriteDirtyEntryWithCleanEntry() {
+    public void shouldThrowIllegalStateExceptionWhenTryingToOverwriteDirtyEntryWithCleanEntry() throws Exception {
         cache.put(Bytes.wrap(new byte[]{0}), new LRUCacheEntry(new byte[]{10}, true, 0, 0, 0, ""));
         cache.put(Bytes.wrap(new byte[]{0}), new LRUCacheEntry(new byte[]{10}, false, 0, 0, 0, ""));
     }
 
     @Test
-    public void shouldRemoveDeletedValuesOnFlush() {
+    public void shouldRemoveDeletedValuesOnFlush() throws Exception {
         cache.setListener(new ThreadCache.DirtyEntryFlushListener() {
             @Override
             public void apply(final List<ThreadCache.DirtyEntry> dirty) {
@@ -251,7 +251,7 @@ public class NamedCacheTest {
     }
 
     @Test
-    public void shouldBeReentrantAndNotBreakLRU() {
+    public void shouldBeReentrantAndNotBreakLRU() throws Exception {
         final LRUCacheEntry dirty = new LRUCacheEntry(new byte[]{3}, true, 0, 0, 0, "");
         final LRUCacheEntry clean = new LRUCacheEntry(new byte[]{3});
         cache.put(Bytes.wrap(new byte[]{0}), dirty);
@@ -297,7 +297,7 @@ public class NamedCacheTest {
     }
 
     @Test
-    public void shouldNotThrowIllegalArgumentAfterEvictingDirtyRecordAndThenPuttingNewRecordWithSameKey() {
+    public void shouldNotThrowIllegalArgumentAfterEvictingDirtyRecordAndThenPuttingNewRecordWithSameKey() throws Exception {
         final LRUCacheEntry dirty = new LRUCacheEntry(new byte[]{3}, true, 0, 0, 0, "");
         final LRUCacheEntry clean = new LRUCacheEntry(new byte[]{3});
         final Bytes key = Bytes.wrap(new byte[] {3});
@@ -312,7 +312,7 @@ public class NamedCacheTest {
     }
 
     @Test
-    public void shouldReturnNullIfKeyIsNull() {
+    public void shouldReturnNullIfKeyIsNull() throws Exception {
         assertNull(cache.get(null));
     }
 }

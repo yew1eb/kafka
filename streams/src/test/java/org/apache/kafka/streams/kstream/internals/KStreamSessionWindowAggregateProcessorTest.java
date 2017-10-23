@@ -18,7 +18,6 @@ package org.apache.kafka.streams.kstream.internals;
 
 import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.serialization.Serdes;
-import org.apache.kafka.common.utils.LogContext;
 import org.apache.kafka.streams.KeyValue;
 import org.apache.kafka.streams.kstream.Aggregator;
 import org.apache.kafka.streams.kstream.Initializer;
@@ -88,7 +87,7 @@ public class KStreamSessionWindowAggregateProcessorTest {
     public void initializeStore() {
         final File stateDir = TestUtils.tempDirectory();
         context = new MockProcessorContext(stateDir,
-            Serdes.String(), Serdes.String(), new NoOpRecordCollector(), new ThreadCache(new LogContext("testCache "), 100000, new MockStreamsMetrics(new Metrics()))) {
+            Serdes.String(), Serdes.String(), new NoOpRecordCollector(), new ThreadCache("testCache", 100000, new MockStreamsMetrics(new Metrics()))) {
             @Override
             public <K, V> void forward(final K key, final V value) {
                 results.add(KeyValue.pair(key, value));
@@ -119,7 +118,7 @@ public class KStreamSessionWindowAggregateProcessorTest {
     }
 
     @Test
-    public void shouldCreateSingleSessionWhenWithinGap() {
+    public void shouldCreateSingleSessionWhenWithinGap() throws Exception {
         context.setTime(0);
         processor.process("john", "first");
         context.setTime(500);
@@ -132,7 +131,7 @@ public class KStreamSessionWindowAggregateProcessorTest {
 
 
     @Test
-    public void shouldMergeSessions() {
+    public void shouldMergeSessions() throws Exception {
         context.setTime(0);
         final String sessionId = "mel";
         processor.process(sessionId, "first");
@@ -156,7 +155,7 @@ public class KStreamSessionWindowAggregateProcessorTest {
     }
 
     @Test
-    public void shouldUpdateSessionIfTheSameTime() {
+    public void shouldUpdateSessionIfTheSameTime() throws Exception {
         context.setTime(0);
         processor.process("mel", "first");
         processor.process("mel", "second");
@@ -166,7 +165,7 @@ public class KStreamSessionWindowAggregateProcessorTest {
     }
 
     @Test
-    public void shouldHaveMultipleSessionsForSameIdWhenTimestampApartBySessionGap() {
+    public void shouldHaveMultipleSessionsForSameIdWhenTimestampApartBySessionGap() throws Exception {
         final String sessionId = "mel";
         long time = 0;
         context.setTime(time);
@@ -191,7 +190,7 @@ public class KStreamSessionWindowAggregateProcessorTest {
 
 
     @Test
-    public void shouldRemoveMergedSessionsFromStateStore() {
+    public void shouldRemoveMergedSessionsFromStateStore() throws Exception {
         context.setTime(0);
         processor.process("a", "1");
 
@@ -209,7 +208,7 @@ public class KStreamSessionWindowAggregateProcessorTest {
     }
 
     @Test
-    public void shouldHandleMultipleSessionsAndMerging() {
+    public void shouldHandleMultipleSessionsAndMerging() throws Exception {
         context.setTime(0);
         processor.process("a", "1");
         processor.process("b", "1");
@@ -239,7 +238,7 @@ public class KStreamSessionWindowAggregateProcessorTest {
 
 
     @Test
-    public void shouldGetAggregatedValuesFromValueGetter() {
+    public void shouldGetAggregatedValuesFromValueGetter() throws Exception {
         final KTableValueGetter<Windowed<String>, Long> getter = sessionAggregator.view().get();
         getter.init(context);
         context.setTime(0);
@@ -254,7 +253,7 @@ public class KStreamSessionWindowAggregateProcessorTest {
     }
 
     @Test
-    public void shouldImmediatelyForwardNewSessionWhenNonCachedStore() {
+    public void shouldImmediatelyForwardNewSessionWhenNonCachedStore() throws Exception {
         initStore(false);
         processor.init(context);
 
@@ -269,7 +268,7 @@ public class KStreamSessionWindowAggregateProcessorTest {
     }
 
     @Test
-    public void shouldImmediatelyForwardRemovedSessionsWhenMerging() {
+    public void shouldImmediatelyForwardRemovedSessionsWhenMerging() throws Exception {
         initStore(false);
         processor.init(context);
 

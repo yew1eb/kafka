@@ -26,7 +26,7 @@ import org.apache.kafka.clients._
 import org.apache.kafka.clients.consumer.internals.{ConsumerNetworkClient, ConsumerProtocol, RequestFuture, RequestFutureAdapter}
 import org.apache.kafka.common.config.ConfigDef.{Importance, Type}
 import org.apache.kafka.common.config.{AbstractConfig, ConfigDef}
-import org.apache.kafka.common.errors.{AuthenticationException, TimeoutException}
+import org.apache.kafka.common.errors.TimeoutException
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.network.Selector
 import org.apache.kafka.common.protocol.{ApiKeys, Errors}
@@ -34,7 +34,7 @@ import org.apache.kafka.common.requests._
 import org.apache.kafka.common.requests.ApiVersionsResponse.ApiVersion
 import org.apache.kafka.common.requests.DescribeGroupsResponse.GroupMetadata
 import org.apache.kafka.common.requests.OffsetFetchResponse
-import org.apache.kafka.common.utils.{LogContext, KafkaThread, Time, Utils}
+import org.apache.kafka.common.utils.{KafkaThread, Time, Utils}
 import org.apache.kafka.common.{Cluster, Node, TopicPartition}
 
 import scala.collection.JavaConverters._
@@ -57,8 +57,9 @@ class AdminClient(val time: Time,
   val networkThread = new KafkaThread("admin-client-network-thread", new Runnable {
     override def run() {
       try {
-        while (running)
+        while (running) {
           client.poll(Long.MaxValue)
+        }
       } catch {
         case t : Throwable =>
           error("admin-client-network-thread exited", t)
@@ -95,8 +96,6 @@ class AdminClient(val time: Time,
       try {
         return send(broker, api, request)
       } catch {
-        case e: AuthenticationException =>
-          throw e
         case e: Exception =>
           debug(s"Request $api failed against node $broker", e)
       }
@@ -453,8 +452,7 @@ object AdminClient {
       metrics,
       time,
       "admin",
-      channelBuilder,
-      new LogContext())
+      channelBuilder)
 
     val networkClient = new NetworkClient(
       selector,
@@ -468,11 +466,9 @@ object AdminClient {
       requestTimeoutMs,
       time,
       true,
-      new ApiVersions,
-      new LogContext())
+      new ApiVersions)
 
     val highLevelClient = new ConsumerNetworkClient(
-      new LogContext(),
       networkClient,
       metadata,
       time,

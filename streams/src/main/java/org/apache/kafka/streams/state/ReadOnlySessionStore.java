@@ -30,8 +30,7 @@ import org.apache.kafka.streams.kstream.Windowed;
 public interface ReadOnlySessionStore<K, AGG> {
 
     /**
-     * Retrieve all aggregated sessions for the provided key.
-     * This iterator must be closed after use.
+     * Retrieve all aggregated sessions for the provided key
      *
      * For each key, the iterator guarantees ordering of sessions, starting from the oldest/earliest
      * available session to the newest/latest session.
@@ -44,8 +43,7 @@ public interface ReadOnlySessionStore<K, AGG> {
     KeyValueIterator<Windowed<K>, AGG> fetch(final K key);
 
     /**
-     * Retrieve all aggregated sessions for the given range of keys.
-     * This iterator must be closed after use.
+     * Retrieve all aggregated sessions for the given range of keys
      *
      * For each key, the iterator guarantees ordering of sessions, starting from the oldest/earliest
      * available session to the newest/latest session.

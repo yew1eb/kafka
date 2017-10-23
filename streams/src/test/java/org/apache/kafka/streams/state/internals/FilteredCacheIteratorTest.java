@@ -86,13 +86,13 @@ public class FilteredCacheIteratorTest {
     }
 
     @Test
-    public void shouldAllowEntryMatchingHasNextCondition() {
+    public void shouldAllowEntryMatchingHasNextCondition() throws Exception {
         final List<KeyValue<Bytes, LRUCacheEntry>> keyValues = toList(allIterator);
         assertThat(keyValues, equalTo(entries));
     }
 
     @Test
-    public void shouldPeekNextKey() {
+    public void shouldPeekNextKey() throws Exception {
         while (allIterator.hasNext()) {
             final Bytes nextKey = allIterator.peekNextKey();
             final KeyValue<Bytes, LRUCacheEntry> next = allIterator.next();
@@ -101,7 +101,7 @@ public class FilteredCacheIteratorTest {
     }
 
     @Test
-    public void shouldPeekNext() {
+    public void shouldPeekNext() throws Exception {
         while (allIterator.hasNext()) {
             final KeyValue<Bytes, LRUCacheEntry> peeked = allIterator.peekNext();
             final KeyValue<Bytes, LRUCacheEntry> next = allIterator.next();
@@ -110,20 +110,20 @@ public class FilteredCacheIteratorTest {
     }
 
     @Test
-    public void shouldNotHaveNextIfHasNextConditionNotMet() {
+    public void shouldNotHaveNextIfHasNextConditionNotMet() throws Exception {
         assertTrue(firstEntryIterator.hasNext());
         firstEntryIterator.next();
         assertFalse(firstEntryIterator.hasNext());
     }
 
     @Test
-    public void shouldFilterEntriesNotMatchingHasNextCondition() {
+    public void shouldFilterEntriesNotMatchingHasNextCondition() throws Exception {
         final List<KeyValue<Bytes, LRUCacheEntry>> keyValues = toList(firstEntryIterator);
         assertThat(keyValues, equalTo(Utils.mkList(firstEntry)));
     }
 
     @Test(expected = UnsupportedOperationException.class)
-    public void shouldThrowUnsupportedOperationExeceptionOnRemove() {
+    public void shouldThrowUnsupportedOperationExeceptionOnRemove() throws Exception {
         allIterator.remove();
     }
 

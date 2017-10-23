@@ -27,6 +27,7 @@ import kafka.javaapi.producer.Producer
 import kafka.utils.IntEncoder
 import kafka.utils.{Logging, TestUtils}
 import kafka.consumer.{KafkaStream, ConsumerConfig}
+import kafka.zk.ZooKeeperTestHarness
 import kafka.common.MessageStreamsExistException
 import org.junit.Test
 

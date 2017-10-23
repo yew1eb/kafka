@@ -40,6 +40,8 @@ class Segment extends RocksDBStore<Bytes, byte[]> {
         super.openDB(context);
 
         // skip the registering step
+
+        open = true;
     }
 
     @Override

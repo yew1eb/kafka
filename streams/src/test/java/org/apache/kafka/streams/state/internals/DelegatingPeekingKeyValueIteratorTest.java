@@ -32,12 +32,12 @@ public class DelegatingPeekingKeyValueIteratorTest {
     private InMemoryKeyValueStore<String, String> store;
 
     @Before
-    public void setUp() {
+    public void setUp() throws Exception {
         store = new InMemoryKeyValueStore<>(name, Serdes.String(), Serdes.String());
     }
 
     @Test
-    public void shouldPeekNextKey() {
+    public void shouldPeekNextKey() throws Exception {
         store.put("A", "A");
         final DelegatingPeekingKeyValueIterator<String, String> peekingIterator = new DelegatingPeekingKeyValueIterator<>(name, store.all());
         assertEquals("A", peekingIterator.peekNextKey());
@@ -47,7 +47,7 @@ public class DelegatingPeekingKeyValueIteratorTest {
     }
 
     @Test
-    public void shouldPeekNext() {
+    public void shouldPeekNext() throws Exception {
         store.put("A", "A");
         final DelegatingPeekingKeyValueIterator<String, String> peekingIterator = new DelegatingPeekingKeyValueIterator<>(name, store.all());
         assertEquals(KeyValue.pair("A", "A"), peekingIterator.peekNext());
@@ -57,7 +57,7 @@ public class DelegatingPeekingKeyValueIteratorTest {
     }
 
     @Test
-    public void shouldPeekAndIterate() {
+    public void shouldPeekAndIterate() throws Exception {
         final String[] kvs = {"a", "b", "c", "d", "e", "f"};
         for (String kv : kvs) {
             store.put(kv, kv);
@@ -77,14 +77,14 @@ public class DelegatingPeekingKeyValueIteratorTest {
     }
 
     @Test(expected = NoSuchElementException.class)
-    public void shouldThrowNoSuchElementWhenNoMoreItemsLeftAndNextCalled() {
+    public void shouldThrowNoSuchElementWhenNoMoreItemsLeftAndNextCalled() throws Exception {
         final DelegatingPeekingKeyValueIterator<String, String> peekingIterator = new DelegatingPeekingKeyValueIterator<>(name, store.all());
         peekingIterator.next();
         peekingIterator.close();
     }
 
     @Test(expected = NoSuchElementException.class)
-    public void shouldThrowNoSuchElementWhenNoMoreItemsLeftAndPeekNextCalled() {
+    public void shouldThrowNoSuchElementWhenNoMoreItemsLeftAndPeekNextCalled() throws Exception {
         final DelegatingPeekingKeyValueIterator<String, String> peekingIterator = new DelegatingPeekingKeyValueIterator<>(name, store.all());
         peekingIterator.peekNextKey();
         peekingIterator.close();

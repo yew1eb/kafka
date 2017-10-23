@@ -17,7 +17,6 @@
 package org.apache.kafka.streams.kstream.internals;
 
 import org.apache.kafka.common.serialization.Serdes;
-import org.apache.kafka.streams.Consumed;
 import org.apache.kafka.streams.StreamsBuilder;
 import org.apache.kafka.streams.kstream.KStream;
 import org.apache.kafka.streams.kstream.Predicate;
@@ -67,7 +66,7 @@ public class KStreamBranchTest {
         KStream<Integer, String>[] branches;
         MockProcessorSupplier<Integer, String>[] processors;
 
-        stream = builder.stream(topicName, Consumed.with(Serdes.Integer(), Serdes.String()));
+        stream = builder.stream(Serdes.Integer(), Serdes.String(), topicName);
         branches = stream.branch(isEven, isMultipleOfThree, isOdd);
 
         assertEquals(3, branches.length);

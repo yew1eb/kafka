@@ -37,8 +37,7 @@ class ProducerPerformanceService(JmxMixin, PerformanceService):
     def __init__(self, context, num_nodes, kafka, topic, num_records, record_size, throughput, version=DEV_BRANCH, settings=None,
                  intermediate_stats=False, client_id="producer-performance", jmx_object_names=None, jmx_attributes=None):
 
-        JmxMixin.__init__(self, num_nodes, jmx_object_names, jmx_attributes or [],
-                          root=ProducerPerformanceService.PERSISTENT_ROOT)
+        JmxMixin.__init__(self, num_nodes, jmx_object_names, jmx_attributes or [])
         PerformanceService.__init__(self, context, num_nodes)
 
         self.logs = {

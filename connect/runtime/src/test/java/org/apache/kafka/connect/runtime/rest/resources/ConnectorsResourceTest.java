@@ -27,7 +27,6 @@ import org.apache.kafka.connect.runtime.distributed.NotAssignedException;
 import org.apache.kafka.connect.runtime.distributed.NotLeaderException;
 import org.apache.kafka.connect.runtime.rest.RestServer;
 import org.apache.kafka.connect.runtime.rest.entities.ConnectorInfo;
-import org.apache.kafka.connect.runtime.rest.entities.ConnectorType;
 import org.apache.kafka.connect.runtime.rest.entities.CreateConnectorRequest;
 import org.apache.kafka.connect.runtime.rest.entities.TaskInfo;
 import org.apache.kafka.connect.util.Callback;
@@ -150,8 +149,7 @@ public class ConnectorsResourceTest {
 
         final Capture<Callback<Herder.Created<ConnectorInfo>>> cb = Capture.newInstance();
         herder.putConnectorConfig(EasyMock.eq(CONNECTOR_NAME), EasyMock.eq(body.config()), EasyMock.eq(false), EasyMock.capture(cb));
-        expectAndCallbackResult(cb, new Herder.Created<>(true, new ConnectorInfo(CONNECTOR_NAME, CONNECTOR_CONFIG,
-            CONNECTOR_TASK_NAMES, ConnectorType.SOURCE)));
+        expectAndCallbackResult(cb, new Herder.Created<>(true, new ConnectorInfo(CONNECTOR_NAME, CONNECTOR_CONFIG, CONNECTOR_TASK_NAMES)));
 
         PowerMock.replayAll();
 
@@ -169,8 +167,7 @@ public class ConnectorsResourceTest {
         expectAndCallbackNotLeaderException(cb);
         // Should forward request
         EasyMock.expect(RestServer.httpRequest(EasyMock.eq("http://leader:8083/connectors?forward=false"), EasyMock.eq("POST"), EasyMock.eq(body), EasyMock.<TypeReference>anyObject()))
-                .andReturn(new RestServer.HttpResponse<>(201, new HashMap<String, List<String>>(), new ConnectorInfo(CONNECTOR_NAME, CONNECTOR_CONFIG, CONNECTOR_TASK_NAMES,
-                    ConnectorType.SOURCE)));
+                .andReturn(new RestServer.HttpResponse<>(201, new HashMap<String, List<String>>(), new ConnectorInfo(CONNECTOR_NAME, CONNECTOR_CONFIG, CONNECTOR_TASK_NAMES)));
 
         PowerMock.replayAll();
 
@@ -204,8 +201,7 @@ public class ConnectorsResourceTest {
 
         final Capture<Callback<Herder.Created<ConnectorInfo>>> cb = Capture.newInstance();
         herder.putConnectorConfig(EasyMock.eq(CONNECTOR_NAME), EasyMock.eq(body.config()), EasyMock.eq(false), EasyMock.capture(cb));
-        expectAndCallbackResult(cb, new Herder.Created<>(true, new ConnectorInfo(CONNECTOR_NAME, CONNECTOR_CONFIG, CONNECTOR_TASK_NAMES,
-            ConnectorType.SOURCE)));
+        expectAndCallbackResult(cb, new Herder.Created<>(true, new ConnectorInfo(CONNECTOR_NAME, CONNECTOR_CONFIG, CONNECTOR_TASK_NAMES)));
 
         PowerMock.replayAll();
 
@@ -261,14 +257,12 @@ public class ConnectorsResourceTest {
     public void testGetConnector() throws Throwable {
         final Capture<Callback<ConnectorInfo>> cb = Capture.newInstance();
         herder.connectorInfo(EasyMock.eq(CONNECTOR_NAME), EasyMock.capture(cb));
-        expectAndCallbackResult(cb, new ConnectorInfo(CONNECTOR_NAME, CONNECTOR_CONFIG, CONNECTOR_TASK_NAMES,
-            ConnectorType.SOURCE));
+        expectAndCallbackResult(cb, new ConnectorInfo(CONNECTOR_NAME, CONNECTOR_CONFIG, CONNECTOR_TASK_NAMES));
 
         PowerMock.replayAll();
 
         ConnectorInfo connInfo = connectorsResource.getConnector(CONNECTOR_NAME, FORWARD);
-        assertEquals(new ConnectorInfo(CONNECTOR_NAME, CONNECTOR_CONFIG, CONNECTOR_TASK_NAMES, ConnectorType.SOURCE),
-            connInfo);
+        assertEquals(new ConnectorInfo(CONNECTOR_NAME, CONNECTOR_CONFIG, CONNECTOR_TASK_NAMES), connInfo);
 
         PowerMock.verifyAll();
     }
@@ -304,8 +298,7 @@ public class ConnectorsResourceTest {
     public void testPutConnectorConfig() throws Throwable {
         final Capture<Callback<Herder.Created<ConnectorInfo>>> cb = Capture.newInstance();
         herder.putConnectorConfig(EasyMock.eq(CONNECTOR_NAME), EasyMock.eq(CONNECTOR_CONFIG), EasyMock.eq(true), EasyMock.capture(cb));
-        expectAndCallbackResult(cb, new Herder.Created<>(false, new ConnectorInfo(CONNECTOR_NAME, CONNECTOR_CONFIG, CONNECTOR_TASK_NAMES,
-            ConnectorType.SINK)));
+        expectAndCallbackResult(cb, new Herder.Created<>(false, new ConnectorInfo(CONNECTOR_NAME, CONNECTOR_CONFIG, CONNECTOR_TASK_NAMES)));
 
         PowerMock.replayAll();
 

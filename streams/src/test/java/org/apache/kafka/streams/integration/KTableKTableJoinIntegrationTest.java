@@ -22,7 +22,6 @@ import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
-import org.apache.kafka.common.utils.Bytes;
 import org.apache.kafka.streams.KafkaStreams;
 import org.apache.kafka.streams.KeyValue;
 import org.apache.kafka.streams.StreamsBuilder;
@@ -30,10 +29,8 @@ import org.apache.kafka.streams.StreamsConfig;
 import org.apache.kafka.streams.integration.utils.EmbeddedKafkaCluster;
 import org.apache.kafka.streams.integration.utils.IntegrationTestUtils;
 import org.apache.kafka.streams.kstream.KTable;
-import org.apache.kafka.streams.kstream.Materialized;
 import org.apache.kafka.streams.kstream.ValueJoiner;
 import org.apache.kafka.streams.state.KeyValueIterator;
-import org.apache.kafka.streams.state.KeyValueStore;
 import org.apache.kafka.streams.state.QueryableStoreTypes;
 import org.apache.kafka.streams.state.ReadOnlyKeyValueStore;
 import org.apache.kafka.test.IntegrationTest;
@@ -45,7 +42,6 @@ import org.junit.ClassRule;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 
-import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -122,12 +118,12 @@ public class KTableKTableJoinIntegrationTest {
     }
 
     @Before
-    public void before() throws IOException {
+    public void before() throws Exception {
         IntegrationTestUtils.purgeLocalStreamsState(streamsConfig);
     }
 
     @After
-    public void after() throws IOException {
+    public void after() throws Exception {
         if (streams != null) {
             streams.close();
             streams = null;
@@ -141,27 +137,27 @@ public class KTableKTableJoinIntegrationTest {
 
 
     @Test
-    public void shouldInnerInnerJoin() throws InterruptedException {
+    public void shouldInnerInnerJoin() throws Exception {
         verifyKTableKTableJoin(JoinType.INNER, JoinType.INNER, Collections.singletonList(new KeyValue<>("b", "B1-B2-B3")), false);
     }
 
     @Test
-    public void shouldInnerInnerJoinQueryable() throws InterruptedException {
+    public void shouldInnerInnerJoinQueryable() throws Exception {
         verifyKTableKTableJoin(JoinType.INNER, JoinType.INNER, Collections.singletonList(new KeyValue<>("b", "B1-B2-B3")), true);
     }
 
     @Test
-    public void shouldInnerLeftJoin() throws InterruptedException {
+    public void shouldInnerLeftJoin() throws Exception {
         verifyKTableKTableJoin(JoinType.INNER, JoinType.LEFT, Collections.singletonList(new KeyValue<>("b", "B1-B2-B3")), false);
     }
 
     @Test
-    public void shouldInnerLeftJoinQueryable() throws InterruptedException {
+    public void shouldInnerLeftJoinQueryable() throws Exception {
         verifyKTableKTableJoin(JoinType.INNER, JoinType.LEFT, Collections.singletonList(new KeyValue<>("b", "B1-B2-B3")), true);
     }
 
     @Test
-    public void shouldInnerOuterJoin() throws InterruptedException {
+    public void shouldInnerOuterJoin() throws Exception {
         verifyKTableKTableJoin(JoinType.INNER, JoinType.OUTER, Arrays.asList(
                 new KeyValue<>("a", "null-A3"),
                 new KeyValue<>("b", "null-B3"),
@@ -170,7 +166,7 @@ public class KTableKTableJoinIntegrationTest {
     }
 
     @Test
-    public void shouldInnerOuterJoinQueryable() throws InterruptedException {
+    public void shouldInnerOuterJoinQueryable() throws Exception {
         verifyKTableKTableJoin(JoinType.INNER, JoinType.OUTER, Arrays.asList(
             new KeyValue<>("a", "null-A3"),
             new KeyValue<>("b", "null-B3"),
@@ -179,7 +175,7 @@ public class KTableKTableJoinIntegrationTest {
     }
 
     @Test
-    public void shouldLeftInnerJoin() throws InterruptedException {
+    public void shouldLeftInnerJoin() throws Exception {
         verifyKTableKTableJoin(JoinType.LEFT, JoinType.INNER, Arrays.asList(
                 new KeyValue<>("a", "A1-null-A3"),
                 new KeyValue<>("b", "B1-null-B3"),
@@ -187,7 +183,7 @@ public class KTableKTableJoinIntegrationTest {
     }
 
     @Test
-    public void shouldLeftInnerJoinQueryable() throws InterruptedException {
+    public void shouldLeftInnerJoinQueryable() throws Exception {
         verifyKTableKTableJoin(JoinType.LEFT, JoinType.INNER, Arrays.asList(
             new KeyValue<>("a", "A1-null-A3"),
             new KeyValue<>("b", "B1-null-B3"),
@@ -195,7 +191,7 @@ public class KTableKTableJoinIntegrationTest {
     }
 
     @Test
-    public void shouldLeftLeftJoin() throws InterruptedException {
+    public void shouldLeftLeftJoin() throws Exception {
         verifyKTableKTableJoin(JoinType.LEFT, JoinType.LEFT, Arrays.asList(
                 new KeyValue<>("a", "A1-null-A3"),
                 new KeyValue<>("b", "B1-null-B3"),
@@ -203,7 +199,7 @@ public class KTableKTableJoinIntegrationTest {
     }
 
     @Test
-    public void shouldLeftLeftJoinQueryable() throws InterruptedException {
+    public void shouldLeftLeftJoinQueryable() throws Exception {
         verifyKTableKTableJoin(JoinType.LEFT, JoinType.LEFT, Arrays.asList(
             new KeyValue<>("a", "A1-null-A3"),
             new KeyValue<>("b", "B1-null-B3"),
@@ -211,7 +207,7 @@ public class KTableKTableJoinIntegrationTest {
     }
 
     @Test
-    public void shouldLeftOuterJoin() throws InterruptedException {
+    public void shouldLeftOuterJoin() throws Exception {
         verifyKTableKTableJoin(JoinType.LEFT, JoinType.OUTER, Arrays.asList(
                 new KeyValue<>("a", "null-A3"),
                 new KeyValue<>("b", "null-B3"),
@@ -222,7 +218,7 @@ public class KTableKTableJoinIntegrationTest {
     }
 
     @Test
-    public void shouldLeftOuterJoinQueryable() throws InterruptedException {
+    public void shouldLeftOuterJoinQueryable() throws Exception {
         verifyKTableKTableJoin(JoinType.LEFT, JoinType.OUTER, Arrays.asList(
             new KeyValue<>("a", "null-A3"),
             new KeyValue<>("b", "null-B3"),
@@ -233,7 +229,7 @@ public class KTableKTableJoinIntegrationTest {
     }
 
     @Test
-    public void shouldOuterInnerJoin() throws InterruptedException {
+    public void shouldOuterInnerJoin() throws Exception {
         verifyKTableKTableJoin(JoinType.OUTER, JoinType.INNER, Arrays.asList(
                 new KeyValue<>("a", "A1-null-A3"),
                 new KeyValue<>("b", "B1-null-B3"),
@@ -242,7 +238,7 @@ public class KTableKTableJoinIntegrationTest {
     }
 
     @Test
-    public void shouldOuterInnerJoinQueryable() throws InterruptedException {
+    public void shouldOuterInnerJoinQueryable() throws Exception {
         verifyKTableKTableJoin(JoinType.OUTER, JoinType.INNER, Arrays.asList(
             new KeyValue<>("a", "A1-null-A3"),
             new KeyValue<>("b", "B1-null-B3"),
@@ -251,7 +247,7 @@ public class KTableKTableJoinIntegrationTest {
     }
 
     @Test
-    public void shouldOuterLeftJoin() throws InterruptedException {
+    public void shouldOuterLeftJoin() throws Exception {
         verifyKTableKTableJoin(JoinType.OUTER, JoinType.LEFT,  Arrays.asList(
                 new KeyValue<>("a", "A1-null-A3"),
                 new KeyValue<>("b", "B1-null-B3"),
@@ -260,7 +256,7 @@ public class KTableKTableJoinIntegrationTest {
     }
 
     @Test
-    public void shouldOuterLeftJoinQueryable() throws InterruptedException {
+    public void shouldOuterLeftJoinQueryable() throws Exception {
         verifyKTableKTableJoin(JoinType.OUTER, JoinType.LEFT,  Arrays.asList(
             new KeyValue<>("a", "A1-null-A3"),
             new KeyValue<>("b", "B1-null-B3"),
@@ -269,7 +265,7 @@ public class KTableKTableJoinIntegrationTest {
     }
 
     @Test
-    public void shouldOuterOuterJoin() throws InterruptedException {
+    public void shouldOuterOuterJoin() throws Exception {
         verifyKTableKTableJoin(JoinType.OUTER, JoinType.OUTER, Arrays.asList(
                 new KeyValue<>("a", "null-A3"),
                 new KeyValue<>("b", "null-B3"),
@@ -281,7 +277,7 @@ public class KTableKTableJoinIntegrationTest {
     }
 
     @Test
-    public void shouldOuterOuterJoinQueryable() throws InterruptedException {
+    public void shouldOuterOuterJoinQueryable() throws Exception {
         verifyKTableKTableJoin(JoinType.OUTER, JoinType.OUTER, Arrays.asList(
             new KeyValue<>("a", "null-A3"),
             new KeyValue<>("b", "null-B3"),
@@ -296,7 +292,7 @@ public class KTableKTableJoinIntegrationTest {
     private void verifyKTableKTableJoin(final JoinType joinType1,
                                         final JoinType joinType2,
                                         final List<KeyValue<String, String>> expectedResult,
-                                        boolean verifyQueryableState) throws InterruptedException {
+                                        boolean verifyQueryableState) throws Exception {
         final String queryableName = verifyQueryableState ? joinType1 + "-" + joinType2 + "-ktable-ktable-join-query" : null;
         streamsConfig.put(StreamsConfig.APPLICATION_ID_CONFIG, joinType1 + "-" + joinType2 + "-ktable-ktable-join" + queryableName);
 
@@ -343,19 +339,12 @@ public class KTableKTableJoinIntegrationTest {
     private KafkaStreams prepareTopology(final JoinType joinType1, final JoinType joinType2, final String queryableName) {
         final StreamsBuilder builder = new StreamsBuilder();
 
-        final KTable<String, String> table1 = builder.table(TABLE_1);
-        final KTable<String, String> table2 = builder.table(TABLE_2);
-        final KTable<String, String> table3 = builder.table(TABLE_3);
+        final KTable<String, String> table1 = builder.table(TABLE_1, TABLE_1);
+        final KTable<String, String> table2 = builder.table(TABLE_2, TABLE_2);
+        final KTable<String, String> table3 = builder.table(TABLE_3, TABLE_3);
 
-        Materialized<String, String, KeyValueStore<Bytes, byte[]>> materialized = null;
-        if (queryableName != null) {
-            materialized = Materialized.<String, String, KeyValueStore<Bytes, byte[]>>as(queryableName)
-                    .withKeySerde(Serdes.String())
-                    .withValueSerde(Serdes.String())
-                    .withCachingDisabled();
-        }
         join(join(table1, table2, joinType1, null /* no need to query intermediate result */), table3,
-            joinType2, materialized).to(OUTPUT);
+            joinType2, queryableName).to(OUTPUT);
 
         return new KafkaStreams(builder.build(), new StreamsConfig(streamsConfig));
     }
@@ -363,7 +352,7 @@ public class KTableKTableJoinIntegrationTest {
     private KTable<String, String> join(final KTable<String, String> first,
                                         final KTable<String, String> second,
                                         final JoinType joinType,
-                                        final Materialized<String, String, KeyValueStore<Bytes, byte[]>> materialized) {
+                                        final String queryableName) {
         final ValueJoiner<String, String, String> joiner = new ValueJoiner<String, String, String>() {
             @Override
             public String apply(final String value1, final String value2) {
@@ -371,26 +360,13 @@ public class KTableKTableJoinIntegrationTest {
             }
         };
 
-
         switch (joinType) {
             case INNER:
-                if (materialized != null) {
-                    return first.join(second, joiner, materialized);
-                } else {
-                    return first.join(second, joiner);
-                }
+                return first.join(second, joiner, Serdes.String(), queryableName);
             case LEFT:
-                if (materialized != null) {
-                    return first.leftJoin(second, joiner, materialized);
-                } else {
-                    return first.leftJoin(second, joiner);
-                }
+                return first.leftJoin(second, joiner, Serdes.String(), queryableName);
             case OUTER:
-                if (materialized != null) {
-                    return first.outerJoin(second, joiner, materialized);
-                } else {
-                    return first.outerJoin(second, joiner);
-                }
+                return first.outerJoin(second, joiner, Serdes.String(), queryableName);
         }
 
         throw new RuntimeException("Unknown join type.");

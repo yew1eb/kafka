@@ -18,7 +18,6 @@ package org.apache.kafka.streams.kstream.internals;
 
 import org.apache.kafka.common.serialization.Serde;
 import org.apache.kafka.common.serialization.Serdes;
-import org.apache.kafka.streams.Consumed;
 import org.apache.kafka.streams.KeyValue;
 import org.apache.kafka.streams.StreamsBuilder;
 import org.apache.kafka.streams.StreamsBuilderTest;
@@ -55,7 +54,6 @@ public class KTableKTableOuterJoinTest {
     private File stateDir = null;
     @Rule
     public final KStreamTestDriver driver = new KStreamTestDriver();
-    private final Consumed<Integer, String> consumed = Consumed.with(intSerde, stringSerde);
 
     @Before
     public void setUp() throws IOException {
@@ -63,7 +61,7 @@ public class KTableKTableOuterJoinTest {
     }
 
     @Test
-    public void testJoin() {
+    public void testJoin() throws Exception {
         StreamsBuilder builder = new StreamsBuilder();
 
         final int[] expectedKeys = new int[]{0, 1, 2, 3};
@@ -74,8 +72,8 @@ public class KTableKTableOuterJoinTest {
         MockProcessorSupplier<Integer, String> processor;
 
         processor = new MockProcessorSupplier<>();
-        table1 = builder.table(topic1, consumed);
-        table2 = builder.table(topic2, consumed);
+        table1 = builder.table(intSerde, stringSerde, topic1, storeName1);
+        table2 = builder.table(intSerde, stringSerde, topic2, storeName2);
         joined = table1.outerJoin(table2, MockValueJoiner.TOSTRING_JOINER);
         joined.toStream().process(processor);
 
@@ -168,7 +166,7 @@ public class KTableKTableOuterJoinTest {
     }
 
     @Test
-    public void testNotSendingOldValue() {
+    public void testNotSendingOldValue() throws Exception {
         final StreamsBuilder builder = new StreamsBuilder();
 
         final int[] expectedKeys = new int[]{0, 1, 2, 3};
@@ -178,8 +176,8 @@ public class KTableKTableOuterJoinTest {
         KTable<Integer, String> joined;
         MockProcessorSupplier<Integer, String> proc;
 
-        table1 = builder.table(topic1, consumed);
-        table2 = builder.table(topic2, consumed);
+        table1 = builder.table(intSerde, stringSerde, topic1, storeName1);
+        table2 = builder.table(intSerde, stringSerde, topic2, storeName2);
         joined = table1.outerJoin(table2, MockValueJoiner.TOSTRING_JOINER);
 
         proc = new MockProcessorSupplier<>();
@@ -256,7 +254,7 @@ public class KTableKTableOuterJoinTest {
     }
 
     @Test
-    public void testSendingOldValue() {
+    public void testSendingOldValue() throws Exception {
         final StreamsBuilder builder = new StreamsBuilder();
 
         final int[] expectedKeys = new int[]{0, 1, 2, 3};
@@ -266,8 +264,8 @@ public class KTableKTableOuterJoinTest {
         KTable<Integer, String> joined;
         MockProcessorSupplier<Integer, String> proc;
 
-        table1 = builder.table(topic1, consumed);
-        table2 = builder.table(topic2, consumed);
+        table1 = builder.table(intSerde, stringSerde, topic1, storeName1);
+        table2 = builder.table(intSerde, stringSerde, topic2, storeName2);
         joined = table1.outerJoin(table2, MockValueJoiner.TOSTRING_JOINER);
 
         ((KTableImpl<?, ?, ?>) joined).enableSendingOldValues();

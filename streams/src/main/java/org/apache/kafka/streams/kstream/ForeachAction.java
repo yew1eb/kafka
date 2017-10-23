@@ -28,6 +28,7 @@ package org.apache.kafka.streams.kstream;
  * @param <K> key type
  * @param <V> value type
  * @see KStream#foreach(ForeachAction)
+ * @see KTable#foreach(ForeachAction)
  */
 public interface ForeachAction<K, V> {
 

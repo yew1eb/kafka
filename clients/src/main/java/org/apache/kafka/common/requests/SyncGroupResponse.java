@@ -18,31 +18,14 @@ package org.apache.kafka.common.requests;
 
 import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.Errors;
-import org.apache.kafka.common.protocol.types.Field;
-import org.apache.kafka.common.protocol.types.Schema;
 import org.apache.kafka.common.protocol.types.Struct;
 
 import java.nio.ByteBuffer;
-import java.util.Map;
-
-import static org.apache.kafka.common.protocol.CommonFields.ERROR_CODE;
-import static org.apache.kafka.common.protocol.CommonFields.THROTTLE_TIME_MS;
-import static org.apache.kafka.common.protocol.types.Type.BYTES;
 
 public class SyncGroupResponse extends AbstractResponse {
-    private static final String MEMBER_ASSIGNMENT_KEY_NAME = "member_assignment";
 
-    private static final Schema SYNC_GROUP_RESPONSE_V0 = new Schema(
-            ERROR_CODE,
-            new Field(MEMBER_ASSIGNMENT_KEY_NAME, BYTES));
-    private static final Schema SYNC_GROUP_RESPONSE_V1 = new Schema(
-            THROTTLE_TIME_MS,
-            ERROR_CODE,
-            new Field(MEMBER_ASSIGNMENT_KEY_NAME, BYTES));
-
-    public static Schema[] schemaVersions() {
-        return new Schema[] {SYNC_GROUP_RESPONSE_V0, SYNC_GROUP_RESPONSE_V1};
-    }
+    public static final String ERROR_CODE_KEY_NAME = "error_code";
+    public static final String MEMBER_ASSIGNMENT_KEY_NAME = "member_assignment";
 
     /**
      * Possible error codes:
@@ -70,8 +53,8 @@ public class SyncGroupResponse extends AbstractResponse {
     }
 
     public SyncGroupResponse(Struct struct) {
-        this.throttleTimeMs = struct.getOrElse(THROTTLE_TIME_MS, DEFAULT_THROTTLE_TIME);
-        this.error = Errors.forCode(struct.get(ERROR_CODE));
+        this.throttleTimeMs = struct.hasField(THROTTLE_TIME_KEY_NAME) ? struct.getInt(THROTTLE_TIME_KEY_NAME) : DEFAULT_THROTTLE_TIME;
+        this.error = Errors.forCode(struct.getShort(ERROR_CODE_KEY_NAME));
         this.memberState = struct.getBytes(MEMBER_ASSIGNMENT_KEY_NAME);
     }
 
@@ -83,11 +66,6 @@ public class SyncGroupResponse extends AbstractResponse {
         return error;
     }
 
-    @Override
-    public Map<Errors, Integer> errorCounts() {
-        return errorCounts(error);
-    }
-
     public ByteBuffer memberAssignment() {
         return memberState;
     }
@@ -95,8 +73,9 @@ public class SyncGroupResponse extends AbstractResponse {
     @Override
     protected Struct toStruct(short version) {
         Struct struct = new Struct(ApiKeys.SYNC_GROUP.responseSchema(version));
-        struct.setIfExists(THROTTLE_TIME_MS, throttleTimeMs);
-        struct.set(ERROR_CODE, error.code());
+        if (struct.hasField(THROTTLE_TIME_KEY_NAME))
+            struct.set(THROTTLE_TIME_KEY_NAME, throttleTimeMs);
+        struct.set(ERROR_CODE_KEY_NAME, error.code());
         struct.set(MEMBER_ASSIGNMENT_KEY_NAME, memberState);
         return struct;
     }

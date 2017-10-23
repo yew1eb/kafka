@@ -138,5 +138,4 @@ class RocksDBSegmentedBytesStore implements SegmentedBytesStore {
     public boolean isOpen() {
         return open;
     }
-
 }

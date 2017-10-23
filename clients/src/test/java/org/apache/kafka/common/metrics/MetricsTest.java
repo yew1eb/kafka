@@ -33,7 +33,6 @@ import org.apache.kafka.common.MetricName;
 import org.apache.kafka.common.metrics.stats.Avg;
 import org.apache.kafka.common.metrics.stats.Count;
 import org.apache.kafka.common.metrics.stats.Max;
-import org.apache.kafka.common.metrics.stats.Meter;
 import org.apache.kafka.common.metrics.stats.Min;
 import org.apache.kafka.common.metrics.stats.Percentile;
 import org.apache.kafka.common.metrics.stats.Percentiles;
@@ -46,7 +45,6 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
-@SuppressWarnings("deprecation")
 public class MetricsTest {
 
     private static final double EPS = 0.000001;
@@ -90,10 +88,8 @@ public class MetricsTest {
         s.add(metrics.metricName("test.avg", "grp1"), new Avg());
         s.add(metrics.metricName("test.max", "grp1"), new Max());
         s.add(metrics.metricName("test.min", "grp1"), new Min());
-        s.add(new Meter(TimeUnit.SECONDS, metrics.metricName("test.rate", "grp1"),
-                metrics.metricName("test.total", "grp1")));
-        s.add(new Meter(TimeUnit.SECONDS, new Count(), metrics.metricName("test.occurences", "grp1"),
-                metrics.metricName("test.occurences.total", "grp1")));
+        s.add(metrics.metricName("test.rate", "grp1"), new Rate(TimeUnit.SECONDS));
+        s.add(metrics.metricName("test.occurences", "grp1"), new Rate(TimeUnit.SECONDS, new Count()));
         s.add(metrics.metricName("test.count", "grp1"), new Count());
         s.add(new Percentiles(100, -100, 100, BucketSizing.CONSTANT,
                              new Percentile(metrics.metricName("test.median", "grp1"), 50.0),
@@ -443,10 +439,7 @@ public class MetricsTest {
         // Use the default time window. Set 3 samples
         MetricConfig cfg = new MetricConfig().samples(3);
         Sensor s = metrics.sensor("test.sensor", cfg);
-        MetricName rateMetricName = metrics.metricName("test.rate", "grp1");
-        MetricName totalMetricName = metrics.metricName("test.total", "grp1");
-        s.add(new Meter(TimeUnit.SECONDS, rateMetricName, totalMetricName));
-        KafkaMetric totalMetric = metrics.metrics().get(metrics.metricName("test.total", "grp1"));
+        s.add(metrics.metricName("test.rate", "grp1"), new Rate(TimeUnit.SECONDS));
 
         int sum = 0;
         int count = cfg.samples() - 1;
@@ -455,7 +448,6 @@ public class MetricsTest {
             s.record(100);
             sum += 100;
             time.sleep(cfg.timeWindowMs());
-            assertEquals(sum, totalMetric.value(), EPS);
         }
 
         // Sleep for half the window.
@@ -464,11 +456,10 @@ public class MetricsTest {
         // prior to any time passing
         double elapsedSecs = (cfg.timeWindowMs() * (cfg.samples() - 1) + cfg.timeWindowMs() / 2) / 1000.0;
 
-        KafkaMetric rateMetric = metrics.metrics().get(metrics.metricName("test.rate", "grp1"));
-        assertEquals("Rate(0...2) = 2.666", sum / elapsedSecs, rateMetric.value(), EPS);
+        KafkaMetric km = metrics.metrics().get(metrics.metricName("test.rate", "grp1"));
+        assertEquals("Rate(0...2) = 2.666", sum / elapsedSecs, km.value(), EPS);
         assertEquals("Elapsed Time = 75 seconds", elapsedSecs,
-                ((Rate) rateMetric.measurable()).windowSize(cfg, time.milliseconds()) / 1000, EPS);
-        assertEquals(sum, totalMetric.value(), EPS);
+                ((Rate) km.measurable()).windowSize(cfg, time.milliseconds()) / 1000, EPS);
     }
 
     public static class ConstantMeasurable implements Measurable {

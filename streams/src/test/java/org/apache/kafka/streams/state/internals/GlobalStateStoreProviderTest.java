@@ -33,7 +33,7 @@ import static org.junit.Assert.assertTrue;
 public class GlobalStateStoreProviderTest {
 
     @Test
-    public void shouldReturnSingleItemListIfStoreExists() {
+    public void shouldReturnSingleItemListIfStoreExists() throws Exception {
         final GlobalStateStoreProvider provider =
                 new GlobalStateStoreProvider(Collections.<String, StateStore>singletonMap("global", new NoOpReadOnlyStore<>()));
         final List<ReadOnlyKeyValueStore<Object, Object>> stores = provider.stores("global", QueryableStoreTypes.keyValueStore());
@@ -41,7 +41,7 @@ public class GlobalStateStoreProviderTest {
     }
 
     @Test
-    public void shouldReturnEmptyItemListIfStoreDoesntExist() {
+    public void shouldReturnEmptyItemListIfStoreDoesntExist() throws Exception {
         final GlobalStateStoreProvider provider =
                 new GlobalStateStoreProvider(Collections.<String, StateStore>emptyMap());
         final List<ReadOnlyKeyValueStore<Object, Object>> stores = provider.stores("global", QueryableStoreTypes.keyValueStore());
@@ -49,7 +49,7 @@ public class GlobalStateStoreProviderTest {
     }
 
     @Test(expected = InvalidStateStoreException.class)
-    public void shouldThrowExceptionIfStoreIsntOpen() {
+    public void shouldThrowExceptionIfStoreIsntOpen() throws Exception {
         final NoOpReadOnlyStore<Object, Object> store = new NoOpReadOnlyStore<>();
         store.close();
         final GlobalStateStoreProvider provider =

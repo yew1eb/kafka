@@ -31,7 +31,6 @@ import org.apache.kafka.common.serialization.IntegerDeserializer;
 import org.apache.kafka.common.serialization.IntegerSerializer;
 import org.apache.kafka.common.serialization.Serde;
 import org.apache.kafka.common.serialization.Serdes;
-import org.apache.kafka.streams.Consumed;
 import org.apache.kafka.streams.KafkaStreams;
 import org.apache.kafka.streams.StreamsBuilder;
 import org.apache.kafka.streams.StreamsConfig;
@@ -45,7 +44,6 @@ import org.apache.kafka.streams.processor.Processor;
 import org.apache.kafka.streams.processor.ProcessorContext;
 import org.apache.kafka.streams.processor.ProcessorSupplier;
 import org.apache.kafka.streams.state.KeyValueStore;
-import org.apache.kafka.streams.state.StoreBuilder;
 import org.apache.kafka.streams.state.Stores;
 import org.apache.kafka.test.TestUtils;
 
@@ -130,7 +128,7 @@ public class SimpleBenchmark {
         this.numThreads = numThreads;
     }
 
-    private void run() {
+    private void run() throws Exception {
         switch (testName) {
             case ALL_TESTS:
                 // producer performance
@@ -188,12 +186,12 @@ public class SimpleBenchmark {
                 yahooBenchmark(YAHOO_CAMPAIGNS_TOPIC, YAHOO_EVENTS_TOPIC);
                 break;
             default:
-                throw new RuntimeException("Unknown test name " + testName);
+                throw new Exception("Unknown test name " + testName);
 
         }
     }
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
         String kafka = args.length > 0 ? args[0] : "localhost:9092";
         String stateDirStr = args.length > 1 ? args[1] : TestUtils.tempDirectory().getAbsolutePath();
         int numRecords = args.length > 2 ? Integer.parseInt(args[2]) : 10000000;
@@ -255,7 +253,7 @@ public class SimpleBenchmark {
     }
 
     private boolean maybeSetupPhase(final String topic, final String clientId,
-                                    final boolean skipIfAllTests) {
+                                    final boolean skipIfAllTests) throws Exception {
         resetStats();
         // initialize topics
         if (loadPhase) {
@@ -292,7 +290,7 @@ public class SimpleBenchmark {
     }
 
 
-    private void yahooBenchmark(final String campaignsTopic, final String eventsTopic) {
+    private void yahooBenchmark(final String campaignsTopic, final String eventsTopic) throws Exception {
         YahooBenchmark benchmark = new YahooBenchmark(this, campaignsTopic, eventsTopic);
 
         benchmark.run();
@@ -305,7 +303,7 @@ public class SimpleBenchmark {
      * @param countTopic Topic where numbers are stored
      * @throws Exception
      */
-    public void count(String countTopic) {
+    public void count(String countTopic) throws Exception {
         if (maybeSetupPhase(countTopic, "simple-benchmark-produce-count", false)) {
             return;
         }
@@ -320,7 +318,7 @@ public class SimpleBenchmark {
      * Measure the performance of a KStream-KTable left join. The setup is such that each
      * KStream record joins to exactly one element in the KTable
      */
-    public void kStreamKTableJoin(String kStreamTopic, String kTableTopic) {
+    public void kStreamKTableJoin(String kStreamTopic, String kTableTopic) throws Exception {
         if (maybeSetupPhase(kStreamTopic, "simple-benchmark-produce-kstream", false)) {
             maybeSetupPhase(kTableTopic, "simple-benchmark-produce-ktable", false);
             return;
@@ -340,7 +338,7 @@ public class SimpleBenchmark {
      * Measure the performance of a KStream-KStream left join. The setup is such that each
      * KStream record joins to exactly one element in the other KStream
      */
-    public void kStreamKStreamJoin(String kStreamTopic1, String kStreamTopic2) {
+    public void kStreamKStreamJoin(String kStreamTopic1, String kStreamTopic2) throws Exception {
         if (maybeSetupPhase(kStreamTopic1, "simple-benchmark-produce-kstream-topic1", false)) {
             maybeSetupPhase(kStreamTopic2, "simple-benchmark-produce-kstream-topic2", false);
             return;
@@ -360,7 +358,7 @@ public class SimpleBenchmark {
      * Measure the performance of a KTable-KTable left join. The setup is such that each
      * KTable record joins to exactly one element in the other KTable
      */
-    public void kTableKTableJoin(String kTableTopic1, String kTableTopic2) {
+    public void kTableKTableJoin(String kTableTopic1, String kTableTopic2) throws Exception {
         if (maybeSetupPhase(kTableTopic1, "simple-benchmark-produce-ktable-topic1", false)) {
             maybeSetupPhase(kTableTopic2, "simple-benchmark-produce-ktable-topic2", false);
             return;
@@ -392,7 +390,7 @@ public class SimpleBenchmark {
             try {
                 latch.await();
             } catch (InterruptedException ex) {
-                Thread.currentThread().interrupt();
+                //ignore
             }
         }
         long endTime = System.currentTimeMillis();
@@ -401,7 +399,7 @@ public class SimpleBenchmark {
         streams.close();
     }
 
-    private long startStreamsThread(final KafkaStreams streams, final CountDownLatch latch) {
+    private long startStreamsThread(final KafkaStreams streams, final CountDownLatch latch) throws Exception {
         Thread thread = new Thread() {
             public void run() {
                 streams.start();
@@ -431,7 +429,7 @@ public class SimpleBenchmark {
         return endTime - startTime;
     }
 
-    public void processStream(final String topic) {
+    public void processStream(final String topic) throws Exception {
         if (maybeSetupPhase(topic, "simple-benchmark-process-stream-load", true)) {
             return;
         }
@@ -444,7 +442,7 @@ public class SimpleBenchmark {
         printResults("Streams Performance [records/latency/rec-sec/MB-sec source]: ", latency);
     }
 
-    public void processStreamWithSink(String topic) {
+    public void processStreamWithSink(String topic) throws Exception {
         if (maybeSetupPhase(topic, "simple-benchmark-process-stream-with-sink-load", true)) {
             return;
         }
@@ -457,7 +455,7 @@ public class SimpleBenchmark {
 
     }
 
-    public void processStreamWithStateStore(String topic) {
+    public void processStreamWithStateStore(String topic) throws Exception {
         if (maybeSetupPhase(topic, "simple-benchmark-process-stream-with-state-store-load", true)) {
             return;
         }
@@ -469,7 +467,7 @@ public class SimpleBenchmark {
 
     }
 
-    public void processStreamWithCachedStateStore(String topic) {
+    public void processStreamWithCachedStateStore(String topic) throws Exception {
         if (maybeSetupPhase(topic, "simple-benchmark-process-stream-with-cached-state-store-load", true)) {
             return;
         }
@@ -480,7 +478,7 @@ public class SimpleBenchmark {
         printResults("Streams Performance [records/latency/rec-sec/MB-sec source+cache+store]: ", latency);
     }
 
-    public void produce(String topic) {
+    public void produce(String topic) throws Exception {
         // loading phase does not make sense for producer
         if (loadPhase) {
             resetStats();
@@ -500,11 +498,11 @@ public class SimpleBenchmark {
      *                   when this produce step is part of another benchmark that produces its own stats
      */
     private void produce(String topic, int valueSizeBytes, String clientId, int numRecords, boolean sequential,
-                         int upperRange, boolean printStats) {
+                         int upperRange, boolean printStats) throws Exception {
 
 
         if (sequential) {
-            if (upperRange < numRecords) throw new IllegalArgumentException("UpperRange must be >= numRecords");
+            if (upperRange < numRecords) throw new Exception("UpperRange must be >= numRecords");
         }
         if (!sequential) {
             System.out.println("WARNING: You are using non-sequential keys. If your tests' exit logic expects to see a final key, random keys may not work.");
@@ -540,7 +538,7 @@ public class SimpleBenchmark {
         }
     }
 
-    public void consume(String topic) {
+    public void consume(String topic) throws Exception {
         if (maybeSetupPhase(topic, "simple-benchmark-consumer-load", true)) {
             return;
         }
@@ -588,7 +586,7 @@ public class SimpleBenchmark {
 
         StreamsBuilder builder = new StreamsBuilder();
 
-        KStream<Integer, byte[]> source = builder.stream(topic, Consumed.with(INTEGER_SERDE, BYTE_SERDE));
+        KStream<Integer, byte[]> source = builder.stream(INTEGER_SERDE, BYTE_SERDE, topic);
 
         source.process(new ProcessorSupplier<Integer, byte[]>() {
             @Override
@@ -627,7 +625,7 @@ public class SimpleBenchmark {
 
         StreamsBuilder builder = new StreamsBuilder();
 
-        KStream<Integer, byte[]> source = builder.stream(topic, Consumed.with(INTEGER_SERDE, BYTE_SERDE));
+        KStream<Integer, byte[]> source = builder.stream(INTEGER_SERDE, BYTE_SERDE, topic);
 
         source.to(INTEGER_SERDE, BYTE_SERDE, SINK_TOPIC);
         source.process(new ProcessorSupplier<Integer, byte[]>() {
@@ -687,7 +685,7 @@ public class SimpleBenchmark {
         final StreamsBuilder builder = new StreamsBuilder();
 
         final KStream<Long, byte[]> input1 = builder.stream(kStreamTopic);
-        final KTable<Long, byte[]> input2 = builder.table(kTableTopic);
+        final KTable<Long, byte[]> input2 = builder.table(kTableTopic, kTableTopic + "-store");
 
         input1.leftJoin(input2, VALUE_JOINER).foreach(new CountDownAction(latch));
 
@@ -698,8 +696,8 @@ public class SimpleBenchmark {
                                                             String kTableTopic2, final CountDownLatch latch) {
         final StreamsBuilder builder = new StreamsBuilder();
 
-        final KTable<Long, byte[]> input1 = builder.table(kTableTopic1);
-        final KTable<Long, byte[]> input2 = builder.table(kTableTopic2);
+        final KTable<Long, byte[]> input1 = builder.table(kTableTopic1, kTableTopic1 + "-store");
+        final KTable<Long, byte[]> input2 = builder.table(kTableTopic2, kTableTopic2 + "-store");
 
         input1.leftJoin(input2, VALUE_JOINER).foreach(new CountDownAction(latch));
 
@@ -726,14 +724,12 @@ public class SimpleBenchmark {
 
         StreamsBuilder builder = new StreamsBuilder();
 
-        final StoreBuilder<KeyValueStore<Integer, byte[]>> storeBuilder
-                = Stores.keyValueStoreBuilder(Stores.persistentKeyValueStore("store"), Serdes.Integer(), Serdes.ByteArray());
         if (enableCaching) {
-            builder.addStateStore(storeBuilder.withCachingEnabled());
+            builder.addStateStore(Stores.create("store").withIntegerKeys().withByteArrayValues().persistent().enableCaching().build());
         } else {
-            builder.addStateStore(storeBuilder);
+            builder.addStateStore(Stores.create("store").withIntegerKeys().withByteArrayValues().persistent().build());
         }
-        KStream<Integer, byte[]> source = builder.stream(topic, Consumed.with(INTEGER_SERDE, BYTE_SERDE));
+        KStream<Integer, byte[]> source = builder.stream(INTEGER_SERDE, BYTE_SERDE, topic);
 
         source.process(new ProcessorSupplier<Integer, byte[]>() {
             @Override

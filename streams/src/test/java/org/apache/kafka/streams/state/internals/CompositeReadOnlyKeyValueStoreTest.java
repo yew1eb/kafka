@@ -40,7 +40,6 @@ import static org.junit.Assert.fail;
 public class CompositeReadOnlyKeyValueStoreTest {
 
     private final String storeName = "my-store";
-    private final String storeNameA = "my-storeA";
     private StateStoreProviderStub stubProviderTwo;
     private KeyValueStore<String, String> stubOneUnderlying;
     private CompositeReadOnlyKeyValueStore<String, String> theStore;
@@ -68,33 +67,33 @@ public class CompositeReadOnlyKeyValueStoreTest {
     }
 
     @Test
-    public void shouldReturnNullIfKeyDoesntExist() {
+    public void shouldReturnNullIfKeyDoesntExist() throws Exception {
         assertNull(theStore.get("whatever"));
     }
 
     @Test(expected = NullPointerException.class)
-    public void shouldThrowNullPointerExceptionOnGetNullKey() {
+    public void shouldThrowNullPointerExceptionOnGetNullKey() throws Exception {
         theStore.get(null);
     }
 
     @Test(expected = NullPointerException.class)
-    public void shouldThrowNullPointerExceptionOnRangeNullFromKey() {
+    public void shouldThrowNullPointerExceptionOnRangeNullFromKey() throws Exception {
         theStore.range(null, "to");
     }
 
     @Test(expected = NullPointerException.class)
-    public void shouldThrowNullPointerExceptionOnRangeNullToKey() {
+    public void shouldThrowNullPointerExceptionOnRangeNullToKey() throws Exception {
         theStore.range("from", null);
     }
 
     @Test
-    public void shouldReturnValueIfExists() {
+    public void shouldReturnValueIfExists() throws Exception {
         stubOneUnderlying.put("key", "value");
         assertEquals("value", theStore.get("key"));
     }
 
     @Test
-    public void shouldNotGetValuesFromOtherStores() {
+    public void shouldNotGetValuesFromOtherStores() throws Exception {
         otherUnderlyingStore.put("otherKey", "otherValue");
         assertNull(theStore.get("otherKey"));
     }
@@ -142,7 +141,7 @@ public class CompositeReadOnlyKeyValueStoreTest {
     }
 
     @Test
-    public void shouldFindValueForKeyWhenMultiStores() {
+    public void shouldFindValueForKeyWhenMultiStores() throws Exception {
         final KeyValueStore<String, String> cache = newStoreInstance();
         stubProviderTwo.addStore(storeName, cache);
 
@@ -154,7 +153,7 @@ public class CompositeReadOnlyKeyValueStoreTest {
     }
 
     @Test
-    public void shouldSupportRange() {
+    public void shouldSupportRange() throws Exception {
         stubOneUnderlying.put("a", "a");
         stubOneUnderlying.put("b", "b");
         stubOneUnderlying.put("c", "c");
@@ -166,7 +165,7 @@ public class CompositeReadOnlyKeyValueStoreTest {
     }
 
     @Test
-    public void shouldSupportRangeAcrossMultipleKVStores() {
+    public void shouldSupportRangeAcrossMultipleKVStores() throws Exception {
         final KeyValueStore<String, String> cache = newStoreInstance();
         stubProviderTwo.addStore(storeName, cache);
 
@@ -187,7 +186,7 @@ public class CompositeReadOnlyKeyValueStoreTest {
     }
 
     @Test
-    public void shouldSupportAllAcrossMultipleStores() {
+    public void shouldSupportAllAcrossMultipleStores() throws Exception {
         final KeyValueStore<String, String> cache = newStoreInstance();
         stubProviderTwo.addStore(storeName, cache);
 
@@ -210,27 +209,27 @@ public class CompositeReadOnlyKeyValueStoreTest {
     }
 
     @Test(expected = InvalidStateStoreException.class)
-    public void shouldThrowInvalidStoreExceptionDuringRebalance() {
+    public void shouldThrowInvalidStoreExceptionDuringRebalance() throws Exception {
         rebalancing().get("anything");
     }
 
     @Test(expected = InvalidStateStoreException.class)
-    public void shouldThrowInvalidStoreExceptionOnApproximateNumEntriesDuringRebalance() {
+    public void shouldThrowInvalidStoreExceptionOnApproximateNumEntriesDuringRebalance() throws Exception {
         rebalancing().approximateNumEntries();
     }
 
     @Test(expected = InvalidStateStoreException.class)
-    public void shouldThrowInvalidStoreExceptionOnRangeDuringRebalance() {
+    public void shouldThrowInvalidStoreExceptionOnRangeDuringRebalance() throws Exception {
         rebalancing().range("anything", "something");
     }
 
     @Test(expected = InvalidStateStoreException.class)
-    public void shouldThrowInvalidStoreExceptionOnAllDuringRebalance() {
+    public void shouldThrowInvalidStoreExceptionOnAllDuringRebalance() throws Exception {
         rebalancing().all();
     }
 
     @Test
-    public void shouldGetApproximateEntriesAcrossAllStores() {
+    public void shouldGetApproximateEntriesAcrossAllStores() throws Exception {
         final KeyValueStore<String, String> cache = newStoreInstance();
         stubProviderTwo.addStore(storeName, cache);
 
@@ -246,7 +245,7 @@ public class CompositeReadOnlyKeyValueStoreTest {
     }
 
     @Test
-    public void shouldReturnLongMaxValueOnOverflow() {
+    public void shouldReturnLongMaxValueOnOverflow() throws Exception {
         stubProviderTwo.addStore(storeName, new NoOpReadOnlyStore<Object, Object>() {
             @Override
             public long approximateNumEntries() {
@@ -255,24 +254,6 @@ public class CompositeReadOnlyKeyValueStoreTest {
         });
 
         stubOneUnderlying.put("overflow", "me");
-        assertEquals(Long.MAX_VALUE, theStore.approximateNumEntries());
-    }
-
-    @Test
-    public void shouldReturnLongMaxValueOnUnderflow() {
-        stubProviderTwo.addStore(storeName, new NoOpReadOnlyStore<Object, Object>() {
-            @Override
-            public long approximateNumEntries() {
-                return Long.MAX_VALUE;
-            }
-        });
-        stubProviderTwo.addStore(storeNameA, new NoOpReadOnlyStore<Object, Object>() {
-            @Override
-            public long approximateNumEntries() {
-                return Long.MAX_VALUE;
-            }
-        });
-
         assertEquals(Long.MAX_VALUE, theStore.approximateNumEntries());
     }
 

@@ -43,7 +43,6 @@ public class WindowedSerializer<T> implements Serializer<Windowed<T>> {
     // Default constructor needed by Kafka
     public WindowedSerializer() {}
 
-    @SuppressWarnings("unchecked")
     @Override
     public void configure(Map<String, ?> configs, boolean isKey) {
         if (inner == null) {
@@ -77,12 +76,12 @@ public class WindowedSerializer<T> implements Serializer<Windowed<T>> {
         inner.close();
     }
 
-    byte[] serializeBaseKey(String topic, Windowed<T> data) {
+    public byte[] serializeBaseKey(String topic, Windowed<T> data) {
         return inner.serialize(topic, data.key());
     }
 
     // Only for testing
-    Serializer<T> innerSerializer() {
+    public Serializer<T> innerSerializer() {
         return inner;
     }
 }

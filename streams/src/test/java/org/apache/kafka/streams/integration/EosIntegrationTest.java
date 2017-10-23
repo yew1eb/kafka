@@ -32,11 +32,11 @@ import org.apache.kafka.streams.kstream.KStream;
 import org.apache.kafka.streams.kstream.Transformer;
 import org.apache.kafka.streams.kstream.TransformerSupplier;
 import org.apache.kafka.streams.processor.ProcessorContext;
+import org.apache.kafka.streams.processor.StateStoreSupplier;
 import org.apache.kafka.streams.state.KeyValueIterator;
 import org.apache.kafka.streams.state.KeyValueStore;
 import org.apache.kafka.streams.state.QueryableStoreTypes;
 import org.apache.kafka.streams.state.ReadOnlyKeyValueStore;
-import org.apache.kafka.streams.state.StoreBuilder;
 import org.apache.kafka.streams.state.Stores;
 import org.apache.kafka.test.IntegrationTest;
 import org.apache.kafka.test.StreamsTestUtils;
@@ -97,7 +97,7 @@ public class EosIntegrationTest {
     private int testNumber = 0;
 
     @Before
-    public void createTopics() throws InterruptedException {
+    public void createTopics() throws Exception {
         applicationId = "appId-" + ++testNumber;
         CLUSTER.deleteTopicsAndWait(
             SINGLE_PARTITION_INPUT_TOPIC, MULTI_PARTITION_INPUT_TOPIC,
@@ -583,11 +583,13 @@ public class EosIntegrationTest {
         String[] storeNames = null;
         if (withState) {
             storeNames = new String[] {storeName};
-            final StoreBuilder<KeyValueStore<Long, Long>> storeBuilder
-                    = Stores.keyValueStoreBuilder(Stores.persistentKeyValueStore(storeName), Serdes.Long(), Serdes.Long())
-                    .withCachingEnabled();
+            final StateStoreSupplier storeSupplier = Stores.create(storeName)
+                .withLongKeys()
+                .withLongValues()
+                .persistent()
+                .build();
 
-            builder.addStateStore(storeBuilder);
+            builder.addStateStore(storeSupplier);
         }
 
         final KStream<Long, Long> input = builder.stream(MULTI_PARTITION_INPUT_TOPIC);
@@ -699,7 +701,7 @@ public class EosIntegrationTest {
     }
 
     private List<KeyValue<Long, Long>> readResult(final int numberOfRecords,
-                                                  final String groupId) throws InterruptedException {
+                                                  final String groupId) throws Exception {
         if (groupId != null) {
             return IntegrationTestUtils.waitUntilMinKeyValueRecordsReceived(
                 TestUtils.consumerConfig(

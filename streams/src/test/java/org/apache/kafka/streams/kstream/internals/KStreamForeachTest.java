@@ -18,7 +18,6 @@ package org.apache.kafka.streams.kstream.internals;
 
 import org.apache.kafka.common.serialization.Serde;
 import org.apache.kafka.common.serialization.Serdes;
-import org.apache.kafka.streams.Consumed;
 import org.apache.kafka.streams.KeyValue;
 import org.apache.kafka.streams.StreamsBuilder;
 import org.apache.kafka.streams.kstream.ForeachAction;
@@ -71,7 +70,7 @@ public class KStreamForeachTest {
 
         // When
         StreamsBuilder builder = new StreamsBuilder();
-        KStream<Integer, String> stream = builder.stream(topicName, Consumed.with(intSerde, stringSerde));
+        KStream<Integer, String> stream = builder.stream(intSerde, stringSerde, topicName);
         stream.foreach(action);
 
         // Then

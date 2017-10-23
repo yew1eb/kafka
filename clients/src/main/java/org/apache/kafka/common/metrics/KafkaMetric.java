@@ -25,16 +25,14 @@ public final class KafkaMetric implements Metric {
     private MetricName metricName;
     private final Object lock;
     private final Time time;
-    private final MetricValueProvider<?> metricValueProvider;
+    private final Measurable measurable;
     private MetricConfig config;
 
-    KafkaMetric(Object lock, MetricName metricName, MetricValueProvider<?> valueProvider,
-            MetricConfig config, Time time) {
+    KafkaMetric(Object lock, MetricName metricName, Measurable measurable, MetricConfig config, Time time) {
+        super();
         this.metricName = metricName;
         this.lock = lock;
-        if (!(valueProvider instanceof Measurable) && !(valueProvider instanceof Gauge))
-            throw new IllegalArgumentException("Unsupported metric value provider of class " + valueProvider.getClass());
-        this.metricValueProvider = valueProvider;
+        this.measurable = measurable;
         this.config = config;
         this.time = time;
     }
@@ -48,42 +46,19 @@ public final class KafkaMetric implements Metric {
         return this.metricName;
     }
 
-    /**
-     * See {@link Metric#value()} for the details on why this is deprecated.
-     */
     @Override
-    @Deprecated
     public double value() {
         synchronized (this.lock) {
-            return measurableValue(time.milliseconds());
-        }
-    }
-
-    @Override
-    public Object metricValue() {
-        long now = time.milliseconds();
-        synchronized (this.lock) {
-            if (this.metricValueProvider instanceof Measurable)
-                return ((Measurable) metricValueProvider).measure(config, now);
-            else if (this.metricValueProvider instanceof Gauge)
-                return ((Gauge<?>) metricValueProvider).value(config, now);
-            else
-                throw new IllegalStateException("Not a valid metric: " + this.metricValueProvider.getClass());
+            return value(time.milliseconds());
         }
     }
 
     public Measurable measurable() {
-        if (this.metricValueProvider instanceof Measurable)
-            return (Measurable) metricValueProvider;
-        else
-            throw new IllegalStateException("Not a measurable: " + this.metricValueProvider.getClass());
+        return this.measurable;
     }
 
-    double measurableValue(long timeMs) {
-        if (this.metricValueProvider instanceof Measurable)
-            return ((Measurable) metricValueProvider).measure(config, timeMs);
-        else
-            return 0;
+    double value(long timeMs) {
+        return this.measurable.measure(config, timeMs);
     }
 
     public void config(MetricConfig config) {

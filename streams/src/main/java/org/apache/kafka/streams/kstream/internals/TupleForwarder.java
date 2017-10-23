@@ -19,7 +19,6 @@ package org.apache.kafka.streams.kstream.internals;
 import org.apache.kafka.streams.processor.ProcessorContext;
 import org.apache.kafka.streams.processor.StateStore;
 import org.apache.kafka.streams.state.internals.CachedStateStore;
-import org.apache.kafka.streams.state.internals.WrappedStateStore;
 
 /**
  * This class is used to determine if a processor should forward values to child nodes.
@@ -29,7 +28,7 @@ import org.apache.kafka.streams.state.internals.WrappedStateStore;
  * @param <V>
  */
 class TupleForwarder<K, V> {
-    private final CachedStateStore cachedStateStore;
+    private final boolean cached;
     private final ProcessorContext context;
     private final boolean sendOldValues;
 
@@ -38,28 +37,18 @@ class TupleForwarder<K, V> {
                    final ProcessorContext context,
                    final ForwardingCacheFlushListener flushListener,
                    final boolean sendOldValues) {
-        this.cachedStateStore = cachedStateStore(store);
+        this.cached = store instanceof CachedStateStore;
         this.context = context;
         this.sendOldValues = sendOldValues;
-        if (this.cachedStateStore != null) {
-            cachedStateStore.setFlushListener(flushListener, sendOldValues);
+        if (this.cached) {
+            ((CachedStateStore) store).setFlushListener(flushListener);
         }
-    }
-
-    private CachedStateStore cachedStateStore(final StateStore store) {
-        if (store instanceof CachedStateStore) {
-            return (CachedStateStore) store;
-        } else if (store instanceof WrappedStateStore
-                && ((WrappedStateStore) store).wrappedStore() instanceof CachedStateStore) {
-            return (CachedStateStore) ((WrappedStateStore) store).wrappedStore();
-        }
-        return null;
     }
 
     public void maybeForward(final K key,
                              final V newValue,
                              final V oldValue) {
-        if (cachedStateStore == null) {
+        if (!cached) {
             if (sendOldValues) {
                 context.forward(key, new Change<>(newValue, oldValue));
             } else {

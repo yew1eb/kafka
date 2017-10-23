@@ -91,59 +91,61 @@ public class NodeApiVersionsTest {
     }
 
     @Test
-    public void testLatestUsableVersion() {
+    public void testUsableVersionNoDesiredVersionReturnsLatestUsable() {
         NodeApiVersions apiVersions = NodeApiVersions.create(Collections.singleton(
                 new ApiVersion(ApiKeys.PRODUCE.id, (short) 1, (short) 3)));
-        assertEquals(3, apiVersions.latestUsableVersion(ApiKeys.PRODUCE));
-        assertEquals(1, apiVersions.latestUsableVersion(ApiKeys.PRODUCE, (short) 0, (short) 1));
-        assertEquals(1, apiVersions.latestUsableVersion(ApiKeys.PRODUCE, (short) 1, (short) 1));
-        assertEquals(2, apiVersions.latestUsableVersion(ApiKeys.PRODUCE, (short) 1, (short) 2));
-        assertEquals(3, apiVersions.latestUsableVersion(ApiKeys.PRODUCE, (short) 1, (short) 3));
-        assertEquals(2, apiVersions.latestUsableVersion(ApiKeys.PRODUCE, (short) 2, (short) 2));
-        assertEquals(3, apiVersions.latestUsableVersion(ApiKeys.PRODUCE, (short) 2, (short) 3));
-        assertEquals(3, apiVersions.latestUsableVersion(ApiKeys.PRODUCE, (short) 3, (short) 3));
-        assertEquals(3, apiVersions.latestUsableVersion(ApiKeys.PRODUCE, (short) 3, (short) 4));
+        assertEquals(3, apiVersions.usableVersion(ApiKeys.PRODUCE, null));
+    }
+
+    @Test
+    public void testDesiredVersion() {
+        NodeApiVersions apiVersions = NodeApiVersions.create(Collections.singleton(
+                new ApiVersion(ApiKeys.PRODUCE.id, (short) 1, (short) 3)));
+        assertEquals(3, apiVersions.usableVersion(ApiKeys.PRODUCE));
+        assertEquals(1, apiVersions.usableVersion(ApiKeys.PRODUCE, (short) 1));
+        assertEquals(2, apiVersions.usableVersion(ApiKeys.PRODUCE, (short) 2));
+        assertEquals(3, apiVersions.usableVersion(ApiKeys.PRODUCE, (short) 3));
     }
 
     @Test(expected = UnsupportedVersionException.class)
-    public void testLatestUsableVersionOutOfRangeLow() {
+    public void testDesiredVersionTooLarge() {
         NodeApiVersions apiVersions = NodeApiVersions.create(Collections.singleton(
                 new ApiVersion(ApiKeys.PRODUCE.id, (short) 1, (short) 2)));
-        apiVersions.latestUsableVersion(ApiKeys.PRODUCE, (short) 3, (short) 4);
+        apiVersions.usableVersion(ApiKeys.PRODUCE, (short) 3);
     }
 
     @Test(expected = UnsupportedVersionException.class)
-    public void testLatestUsableVersionOutOfRangeHigh() {
+    public void testDesiredVersionTooSmall() {
         NodeApiVersions apiVersions = NodeApiVersions.create(Collections.singleton(
-                new ApiVersion(ApiKeys.PRODUCE.id, (short) 2, (short) 3)));
-        apiVersions.latestUsableVersion(ApiKeys.PRODUCE, (short) 0, (short) 1);
+                new ApiVersion(ApiKeys.PRODUCE.id, (short) 1, (short) 2)));
+        apiVersions.usableVersion(ApiKeys.PRODUCE, (short) 0);
     }
 
     @Test(expected = UnsupportedVersionException.class)
     public void testUsableVersionCalculationNoKnownVersions() {
         List<ApiVersion> versionList = new ArrayList<>();
         NodeApiVersions versions =  new NodeApiVersions(versionList);
-        versions.latestUsableVersion(ApiKeys.FETCH);
+        versions.usableVersion(ApiKeys.FETCH);
     }
 
     @Test(expected = UnsupportedVersionException.class)
-    public void testLatestUsableVersionOutOfRange() {
+    public void testUsableVersionOutOfRange() {
         NodeApiVersions apiVersions = NodeApiVersions.create(Collections.singleton(
                 new ApiVersion(ApiKeys.PRODUCE.id, (short) 300, (short) 300)));
-        apiVersions.latestUsableVersion(ApiKeys.PRODUCE);
+        apiVersions.usableVersion(ApiKeys.PRODUCE);
     }
 
     @Test
     public void testUsableVersionLatestVersions() {
         List<ApiVersion> versionList = new LinkedList<>();
-        for (ApiVersion apiVersion: ApiVersionsResponse.defaultApiVersionsResponse().apiVersions()) {
+        for (ApiVersion apiVersion: ApiVersionsResponse.API_VERSIONS_RESPONSE.apiVersions()) {
             versionList.add(apiVersion);
         }
         // Add an API key that we don't know about.
         versionList.add(new ApiVersion((short) 100, (short) 0, (short) 1));
         NodeApiVersions versions =  new NodeApiVersions(versionList);
         for (ApiKeys apiKey: ApiKeys.values()) {
-            assertEquals(apiKey.latestVersion(), versions.latestUsableVersion(apiKey));
+            assertEquals(apiKey.latestVersion(), versions.usableVersion(apiKey));
         }
     }
 }

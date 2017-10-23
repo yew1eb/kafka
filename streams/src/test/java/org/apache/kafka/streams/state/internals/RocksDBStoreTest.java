@@ -17,13 +17,15 @@
 package org.apache.kafka.streams.state.internals;
 
 import org.apache.kafka.common.metrics.Metrics;
+import org.apache.kafka.common.serialization.Serde;
 import org.apache.kafka.common.serialization.Serdes;
-import org.apache.kafka.common.utils.LogContext;
 import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.streams.KeyValue;
 import org.apache.kafka.streams.StreamsConfig;
 import org.apache.kafka.streams.errors.ProcessorStateException;
+import org.apache.kafka.streams.processor.StateRestoreListener;
 import org.apache.kafka.streams.processor.internals.MockStreamsMetrics;
+import org.apache.kafka.streams.processor.internals.RecordCollector;
 import org.apache.kafka.streams.state.KeyValueIterator;
 import org.apache.kafka.streams.state.RocksDBConfigSetter;
 import org.apache.kafka.test.MockProcessorContext;
@@ -36,7 +38,6 @@ import org.rocksdb.Options;
 
 import java.io.File;
 import java.io.IOException;
-import java.io.UnsupportedEncodingException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -59,50 +60,39 @@ public class RocksDBStoreTest {
     private File dir;
 
     @Before
-    public void setUp() {
+    public void setUp() throws Exception {
         subject = new RocksDBStore<>("test", Serdes.String(), Serdes.String());
         dir = TestUtils.tempDirectory();
         context = new MockProcessorContext(dir,
             Serdes.String(),
             Serdes.String(),
             new NoOpRecordCollector(),
-            new ThreadCache(new LogContext("testCache "), 0, new MockStreamsMetrics(new Metrics())));
+            new ThreadCache("testCache", 0, new MockStreamsMetrics(new Metrics())));
     }
 
     @After
-    public void tearDown() {
+    public void tearDown() throws Exception {
         subject.close();
     }
 
     @Test
-    public void shouldNotThrowExceptionOnRestoreWhenThereIsPreExistingRocksDbFiles() throws Exception {
-        subject.init(context, subject);
+    public void canSpecifyConfigSetterAsClass() throws Exception {
+        final Map<String, Object> configs = new HashMap<>();
+        configs.put(StreamsConfig.ROCKSDB_CONFIG_SETTER_CLASS_CONFIG, MockRocksDbConfigSetter.class);
+        MockRocksDbConfigSetter.called = false;
+        subject.openDB(new ConfigurableProcessorContext(tempDir, Serdes.String(), Serdes.String(),
+                null, null, configs));
 
-        final String message = "how can a 4 ounce bird carry a 2lb coconut";
-        int intKey = 1;
-        for (int i = 0; i < 2000000; i++) {
-            subject.put("theKeyIs" + intKey++, message);
-        }
-
-        final List<KeyValue<byte[], byte[]>> restoreBytes = new ArrayList<>();
-
-        final byte[] restoredKey = "restoredKey".getBytes("UTF-8");
-        final byte[] restoredValue = "restoredValue".getBytes("UTF-8");
-        restoreBytes.add(KeyValue.pair(restoredKey, restoredValue));
-
-        context.restore("test", restoreBytes);
-
-        assertThat(subject.get("restoredKey"), equalTo("restoredValue"));
+        assertTrue(MockRocksDbConfigSetter.called);
     }
 
     @Test
-    public void verifyRocksDbConfigSetterIsCalled() {
+    public void canSpecifyConfigSetterAsString() throws Exception {
         final Map<String, Object> configs = new HashMap<>();
-        configs.put(StreamsConfig.APPLICATION_ID_CONFIG, "test-application");
-        configs.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG, "test-server:9092");
-        configs.put(StreamsConfig.ROCKSDB_CONFIG_SETTER_CLASS_CONFIG, MockRocksDbConfigSetter.class);
+        configs.put(StreamsConfig.ROCKSDB_CONFIG_SETTER_CLASS_CONFIG, MockRocksDbConfigSetter.class.getName());
         MockRocksDbConfigSetter.called = false;
-        subject.openDB(new MockProcessorContext(tempDir, new StreamsConfig(configs)));
+        subject.openDB(new ConfigurableProcessorContext(tempDir, Serdes.String(), Serdes.String(),
+                null, null, configs));
 
         assertTrue(MockRocksDbConfigSetter.called);
     }
@@ -114,7 +104,7 @@ public class RocksDBStoreTest {
             Serdes.String(),
             Serdes.Long(),
             new NoOpRecordCollector(),
-            new ThreadCache(new LogContext("testCache "), 0, new MockStreamsMetrics(new Metrics())));
+            new ThreadCache("testCache", 0, new MockStreamsMetrics(new Metrics())));
         tmpDir.setReadOnly();
 
         subject.openDB(tmpContext);
@@ -139,8 +129,7 @@ public class RocksDBStoreTest {
     @Test
     public void shouldTogglePrepareForBulkloadSetting() {
         subject.init(context, subject);
-        RocksDBStore.RocksDBBatchingRestoreCallback restoreListener =
-            (RocksDBStore.RocksDBBatchingRestoreCallback) subject.batchingStateRestoreCallback;
+        StateRestoreListener restoreListener = (StateRestoreListener) subject.batchingStateRestoreCallback;
 
         restoreListener.onRestoreStart(null, null, 0, 0);
         assertTrue("Should have set bulk loading to true", subject.isPrepareForBulkload());
@@ -150,25 +139,11 @@ public class RocksDBStoreTest {
     }
 
     @Test
-    public void shouldTogglePrepareForBulkloadSettingWhenPrexistingSstFiles() throws Exception {
-        final List<KeyValue<byte[], byte[]>> entries = getKeyValueEntries();
-
-        subject.init(context, subject);
-        context.restore(subject.name(), entries);
-
-        RocksDBStore.RocksDBBatchingRestoreCallback restoreListener =
-            (RocksDBStore.RocksDBBatchingRestoreCallback) subject.batchingStateRestoreCallback;
-
-        restoreListener.onRestoreStart(null, null, 0, 0);
-        assertTrue("Should have not set bulk loading to true", subject.isPrepareForBulkload());
-
-        restoreListener.onRestoreEnd(null, null, 0);
-        assertFalse("Should have set bulk loading to false", subject.isPrepareForBulkload());
-    }
-
-    @Test
     public void shouldRestoreAll() throws Exception {
-        final List<KeyValue<byte[], byte[]>> entries = getKeyValueEntries();
+        final List<KeyValue<byte[], byte[]>> entries = new ArrayList<>();
+        entries.add(new KeyValue<>("1".getBytes("UTF-8"), "a".getBytes("UTF-8")));
+        entries.add(new KeyValue<>("2".getBytes("UTF-8"), "b".getBytes("UTF-8")));
+        entries.add(new KeyValue<>("3".getBytes("UTF-8"), "c".getBytes("UTF-8")));
 
         subject.init(context, subject);
         context.restore(subject.name(), entries);
@@ -181,7 +156,10 @@ public class RocksDBStoreTest {
 
     @Test
     public void shouldHandleDeletesOnRestoreAll() throws Exception {
-        final List<KeyValue<byte[], byte[]>> entries = getKeyValueEntries();
+        final List<KeyValue<byte[], byte[]>> entries = new ArrayList<>();
+        entries.add(new KeyValue<>("1".getBytes("UTF-8"), "a".getBytes("UTF-8")));
+        entries.add(new KeyValue<>("2".getBytes("UTF-8"), "b".getBytes("UTF-8")));
+        entries.add(new KeyValue<>("3".getBytes("UTF-8"), "c".getBytes("UTF-8")));
         entries.add(new KeyValue<>("1".getBytes("UTF-8"), (byte[]) null));
 
         subject.init(context, subject);
@@ -227,10 +205,14 @@ public class RocksDBStoreTest {
 
     @Test
     public void shouldRestoreThenDeleteOnRestoreAll() throws Exception {
-        final List<KeyValue<byte[], byte[]>> entries = getKeyValueEntries();
+
+        final List<KeyValue<byte[], byte[]>> entries = new ArrayList<>();
+        entries.add(new KeyValue<>("1".getBytes("UTF-8"), "a".getBytes("UTF-8")));
+        entries.add(new KeyValue<>("2".getBytes("UTF-8"), "b".getBytes("UTF-8")));
+        entries.add(new KeyValue<>("3".getBytes("UTF-8"), "c".getBytes("UTF-8")));
 
         subject.init(context, subject);
-
+        
         context.restore(subject.name(), entries);
 
         assertEquals(subject.get("1"), "a");
@@ -303,7 +285,7 @@ public class RocksDBStoreTest {
     }
 
     @Test(expected = ProcessorStateException.class)
-    public void shouldThrowProcessorStateExceptionOnPutDeletedDir() throws IOException {
+    public void shouldThrowProcessorStateExeptionOnPutDeletedDir() throws IOException {
         subject.init(context, subject);
         Utils.delete(dir);
         subject.put("anyKey", "anyValue");
@@ -319,11 +301,23 @@ public class RocksDBStoreTest {
         }
     }
 
-    private List<KeyValue<byte[], byte[]>> getKeyValueEntries() throws UnsupportedEncodingException {
-        final List<KeyValue<byte[], byte[]>> entries = new ArrayList<>();
-        entries.add(new KeyValue<>("1".getBytes("UTF-8"), "a".getBytes("UTF-8")));
-        entries.add(new KeyValue<>("2".getBytes("UTF-8"), "b".getBytes("UTF-8")));
-        entries.add(new KeyValue<>("3".getBytes("UTF-8"), "c".getBytes("UTF-8")));
-        return entries;
+
+    private static class ConfigurableProcessorContext extends MockProcessorContext {
+        final Map<String, Object> configs;
+
+        ConfigurableProcessorContext(final File stateDir,
+                                     final Serde<?> keySerde,
+                                     final Serde<?> valSerde,
+                                     final RecordCollector collector,
+                                     final ThreadCache cache,
+                                     final Map<String, Object> configs) {
+            super(stateDir, keySerde, valSerde, collector, cache);
+            this.configs = configs;
+        }
+
+        @Override
+        public Map<String, Object> appConfigs() {
+            return configs;
+        }
     }
 }

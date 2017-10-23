@@ -19,15 +19,14 @@ package org.apache.kafka.common.protocol.types;
 import java.nio.ByteBuffer;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Objects;
 
 /**
  * The schema for a compound record definition
  */
 public class Schema extends Type {
 
-    private final BoundField[] fields;
-    private final Map<String, BoundField> fieldsByName;
+    private final Field[] fields;
+    private final Map<String, Field> fieldsByName;
 
     /**
      * Construct the schema with a given list of its field values
@@ -35,14 +34,14 @@ public class Schema extends Type {
      * @throws SchemaException If the given list have duplicate fields
      */
     public Schema(Field... fs) {
-        this.fields = new BoundField[fs.length];
+        this.fields = new Field[fs.length];
         this.fieldsByName = new HashMap<>();
         for (int i = 0; i < this.fields.length; i++) {
-            Field def = fs[i];
-            if (fieldsByName.containsKey(def.name))
-                throw new SchemaException("Schema contains a duplicate field: " + def.name);
-            this.fields[i] = new BoundField(def, this, i);
-            this.fieldsByName.put(def.name, this.fields[i]);
+            Field field = fs[i];
+            if (fieldsByName.containsKey(field.name))
+                throw new SchemaException("Schema contains a duplicate field: " + field.name);
+            this.fields[i] = new Field(i, field.name, field.type, field.doc, field.defaultValue, this);
+            this.fieldsByName.put(fs[i].name, this.fields[i]);
         }
     }
 
@@ -52,12 +51,12 @@ public class Schema extends Type {
     @Override
     public void write(ByteBuffer buffer, Object o) {
         Struct r = (Struct) o;
-        for (BoundField field : fields) {
+        for (Field field : fields) {
             try {
-                Object value = field.def.type.validate(r.get(field));
-                field.def.type.write(buffer, value);
+                Object value = field.type().validate(r.get(field));
+                field.type.write(buffer, value);
             } catch (Exception e) {
-                throw new SchemaException("Error writing field '" + field.def.name + "': " +
+                throw new SchemaException("Error writing field '" + field.name + "': " +
                                           (e.getMessage() == null ? e.getClass().getName() : e.getMessage()));
             }
         }
@@ -71,9 +70,9 @@ public class Schema extends Type {
         Object[] objects = new Object[fields.length];
         for (int i = 0; i < fields.length; i++) {
             try {
-                objects[i] = fields[i].def.type.read(buffer);
+                objects[i] = fields[i].type.read(buffer);
             } catch (Exception e) {
-                throw new SchemaException("Error reading field '" + fields[i].def.name + "': " +
+                throw new SchemaException("Error reading field '" + fields[i].name + "': " +
                                           (e.getMessage() == null ? e.getClass().getName() : e.getMessage()));
             }
         }
@@ -87,11 +86,11 @@ public class Schema extends Type {
     public int sizeOf(Object o) {
         int size = 0;
         Struct r = (Struct) o;
-        for (BoundField field : fields) {
+        for (Field field : fields) {
             try {
-                size += field.def.type.sizeOf(r.get(field));
+                size += field.type.sizeOf(r.get(field));
             } catch (Exception e) {
-                throw new SchemaException("Error computing size for field '" + field.def.name + "': " +
+                throw new SchemaException("Error computing size for field '" + field.name + "': " +
                         (e.getMessage() == null ? e.getClass().getName() : e.getMessage()));
             }
         }
@@ -111,7 +110,7 @@ public class Schema extends Type {
      * @param slot The slot at which this field sits
      * @return The field
      */
-    public BoundField get(int slot) {
+    public Field get(int slot) {
         return this.fields[slot];
     }
 
@@ -121,14 +120,14 @@ public class Schema extends Type {
      * @param name The name of the field
      * @return The field
      */
-    public BoundField get(String name) {
+    public Field get(String name) {
         return this.fieldsByName.get(name);
     }
 
     /**
      * Get all the fields in this schema
      */
-    public BoundField[] fields() {
+    public Field[] fields() {
         return this.fields;
     }
 
@@ -152,11 +151,11 @@ public class Schema extends Type {
     public Struct validate(Object item) {
         try {
             Struct struct = (Struct) item;
-            for (BoundField field : fields) {
+            for (Field field : fields) {
                 try {
-                    field.def.type.validate(struct.get(field));
+                    field.type.validate(struct.get(field));
                 } catch (SchemaException e) {
-                    throw new SchemaException("Invalid value for field '" + field.def.name + "': " + e.getMessage());
+                    throw new SchemaException("Invalid value for field '" + field.name + "': " + e.getMessage());
                 }
             }
             return struct;
@@ -164,35 +163,5 @@ public class Schema extends Type {
             throw new SchemaException("Not a Struct.");
         }
     }
-
-    public void walk(Visitor visitor) {
-        Objects.requireNonNull(visitor, "visitor must be non-null");
-        handleNode(this, visitor);
-    }
-
-    private static void handleNode(Type node, Visitor visitor) {
-        if (node instanceof Schema) {
-            Schema schema = (Schema) node;
-            visitor.visit(schema);
-            for (BoundField f : schema.fields())
-                handleNode(f.def.type, visitor);
-        } else if (node instanceof ArrayOf) {
-            ArrayOf array = (ArrayOf) node;
-            visitor.visit(array);
-            handleNode(array.type(), visitor);
-        } else {
-            visitor.visit(node);
-        }
-    }
-
-    /**
-     * Override one or more of the visit methods with the desired logic.
-     */
-    public static abstract class Visitor {
-        public void visit(Schema schema) {}
-        public void visit(ArrayOf array) {}
-        public void visit(Type field) {}
-    }
-
 
 }

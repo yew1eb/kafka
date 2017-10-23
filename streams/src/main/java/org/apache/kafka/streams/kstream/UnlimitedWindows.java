@@ -34,7 +34,12 @@ import java.util.Map;
  * @see TimeWindows
  * @see SessionWindows
  * @see JoinWindows
- * @see KGroupedStream#windowedBy(Windows)
+ * @see KGroupedStream#count(Windows, String)
+ * @see KGroupedStream#count(Windows, org.apache.kafka.streams.processor.StateStoreSupplier)
+ * @see KGroupedStream#reduce(Reducer, Windows, String)
+ * @see KGroupedStream#reduce(Reducer, Windows, org.apache.kafka.streams.processor.StateStoreSupplier)
+ * @see KGroupedStream#aggregate(Initializer, Aggregator, Windows, org.apache.kafka.common.serialization.Serde, String)
+ * @see KGroupedStream#aggregate(Initializer, Aggregator, Windows, org.apache.kafka.streams.processor.StateStoreSupplier)
  * @see TimestampExtractor
  */
 public final class UnlimitedWindows extends Windows<UnlimitedWindow> {

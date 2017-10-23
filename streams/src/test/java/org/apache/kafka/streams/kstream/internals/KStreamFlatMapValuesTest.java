@@ -17,7 +17,6 @@
 package org.apache.kafka.streams.kstream.internals;
 
 import org.apache.kafka.common.serialization.Serdes;
-import org.apache.kafka.streams.Consumed;
 import org.apache.kafka.streams.StreamsBuilder;
 import org.apache.kafka.streams.kstream.KStream;
 import org.apache.kafka.streams.kstream.ValueMapper;
@@ -58,7 +57,7 @@ public class KStreamFlatMapValuesTest {
         MockProcessorSupplier<Integer, String> processor;
 
         processor = new MockProcessorSupplier<>();
-        stream = builder.stream(topicName, Consumed.with(Serdes.Integer(), Serdes.Integer()));
+        stream = builder.stream(Serdes.Integer(), Serdes.Integer(), topicName);
         stream.flatMapValues(mapper).process(processor);
 
         driver.setUp(builder);

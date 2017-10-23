@@ -40,32 +40,32 @@ public class StateRestorerTest {
 
     @Before
     public void setUp() {
-        compositeRestoreListener.setUserRestoreListener(reportingListener);
+        compositeRestoreListener.setGlobalRestoreListener(reportingListener);
     }
 
     @Test
-    public void shouldCallRestoreOnRestoreCallback() {
+    public void shouldCallRestoreOnRestoreCallback() throws Exception {
         restorer.restore(Collections.singletonList(KeyValue.pair(new byte[0], new byte[0])));
         assertThat(callback.restored.size(), equalTo(1));
     }
 
     @Test
-    public void shouldBeCompletedIfRecordOffsetGreaterThanEndOffset() {
+    public void shouldBeCompletedIfRecordOffsetGreaterThanEndOffset() throws Exception {
         assertTrue(restorer.hasCompleted(11, 10));
     }
 
     @Test
-    public void shouldBeCompletedIfRecordOffsetGreaterThanOffsetLimit() {
+    public void shouldBeCompletedIfRecordOffsetGreaterThanOffsetLimit() throws Exception {
         assertTrue(restorer.hasCompleted(51, 100));
     }
 
     @Test
-    public void shouldBeCompletedIfEndOffsetAndRecordOffsetAreZero() {
+    public void shouldBeCompletedIfEndOffsetAndRecordOffsetAreZero() throws Exception {
         assertTrue(restorer.hasCompleted(0, 0));
     }
 
     @Test
-    public void shouldBeCompletedIfOffsetAndOffsetLimitAreZero() {
+    public void shouldBeCompletedIfOffsetAndOffsetLimitAreZero() throws Exception {
         final StateRestorer
             restorer =
             new StateRestorer(new TopicPartition("topic", 1), compositeRestoreListener, null, 0, true,
@@ -74,7 +74,7 @@ public class StateRestorerTest {
     }
 
     @Test
-    public void shouldSetRestoredOffsetToMinOfLimitAndOffset() {
+    public void shouldSetRestoredOffsetToMinOfLimitAndOffset() throws Exception {
         restorer.setRestoredOffset(20);
         assertThat(restorer.restoredOffset(), equalTo(20L));
         restorer.setRestoredOffset(100);
@@ -82,7 +82,7 @@ public class StateRestorerTest {
     }
 
     @Test
-    public void shouldSetStartingOffsetToMinOfLimitAndOffset() {
+    public void shouldSetStartingOffsetToMinOfLimitAndOffset() throws Exception {
         restorer.setStartingOffset(20);
         assertThat(restorer.startingOffset(), equalTo(20L));
         restorer.setRestoredOffset(100);
@@ -90,7 +90,7 @@ public class StateRestorerTest {
     }
 
     @Test
-    public void shouldReturnCorrectNumRestoredRecords() {
+    public void shouldReturnCorrectNumRestoredRecords() throws Exception {
         restorer.setStartingOffset(20);
         restorer.setRestoredOffset(40);
         assertThat(restorer.restoredNumRecords(), equalTo(20L));

@@ -115,8 +115,7 @@ class ConnectRestApiTest(KafkaTest):
         expected_source_info = {
             'name': 'local-file-source',
             'config': self._config_dict_from_props(source_connector_props),
-            'tasks': [{'connector': 'local-file-source', 'task': 0}],
-            'type': 'source'
+            'tasks': [{'connector': 'local-file-source', 'task': 0}]
         }
         source_info = self.cc.get_connector("local-file-source")
         assert expected_source_info == source_info, "Incorrect info:" + json.dumps(source_info)
@@ -125,8 +124,7 @@ class ConnectRestApiTest(KafkaTest):
         expected_sink_info = {
             'name': 'local-file-sink',
             'config': self._config_dict_from_props(sink_connector_props),
-            'tasks': [{'connector': 'local-file-sink', 'task': 0}],
-            'type': 'sink'
+            'tasks': [{'connector': 'local-file-sink', 'task': 0}]
         }
         sink_info = self.cc.get_connector("local-file-sink")
         assert expected_sink_info == sink_info, "Incorrect info:" + json.dumps(sink_info)

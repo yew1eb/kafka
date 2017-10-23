@@ -91,10 +91,8 @@ public class KStreamTransformValues<K, V, R> implements ProcessorSupplier<K, V> 
                     }
 
                     @Override
-                    public void register(final StateStore store,
-                                         final boolean deprecatedAndIgnoredLoggingEnabled,
-                                         final StateRestoreCallback stateRestoreCallback) {
-                        context.register(store, deprecatedAndIgnoredLoggingEnabled, stateRestoreCallback);
+                    public void register(final StateStore store, final boolean loggingEnabled, final StateRestoreCallback stateRestoreCallback) {
+                        context.register(store, loggingEnabled, stateRestoreCallback);
                     }
 
                     @Override

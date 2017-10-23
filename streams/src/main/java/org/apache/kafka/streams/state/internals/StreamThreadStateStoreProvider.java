@@ -44,7 +44,7 @@ public class StreamThreadStateStoreProvider implements StateStoreProvider {
         if (streamThread.state() == StreamThread.State.DEAD) {
             return Collections.emptyList();
         }
-        if (!streamThread.isRunningAndNotRebalancing()) {
+        if (!streamThread.isInitialized()) {
             throw new InvalidStateStoreException("the state store, " + storeName + ", may have migrated to another instance.");
         }
         final List<T> stores = new ArrayList<>();

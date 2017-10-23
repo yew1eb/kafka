@@ -26,15 +26,13 @@ import kafka.coordinator.group.OffsetConfig
 import kafka.coordinator.transaction.{TransactionLog, TransactionStateManager}
 import kafka.message.{BrokerCompressionCodec, CompressionCodec, Message, MessageSet}
 import kafka.utils.CoreUtils
-import kafka.utils.Implicits._
 import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.common.config.ConfigDef.ValidList
-import org.apache.kafka.common.config.internals.BrokerSecurityConfigs
 import org.apache.kafka.common.config.{AbstractConfig, ConfigDef, ConfigException, SaslConfigs, SslConfigs, TopicConfig}
 import org.apache.kafka.common.metrics.Sensor
 import org.apache.kafka.common.network.ListenerName
+import org.apache.kafka.common.protocol.SecurityProtocol
 import org.apache.kafka.common.record.TimestampType
-import org.apache.kafka.common.security.auth.SecurityProtocol
 
 import scala.collection.JavaConverters._
 import scala.collection.Map
@@ -178,8 +176,6 @@ object Defaults {
   val QuotaWindowSizeSeconds: Int = ClientQuotaManagerConfig.DefaultQuotaWindowSizeSeconds
   val NumReplicationQuotaSamples: Int = ReplicationQuotaManagerConfig.DefaultNumQuotaSamples
   val ReplicationQuotaWindowSizeSeconds: Int = ReplicationQuotaManagerConfig.DefaultQuotaWindowSizeSeconds
-  val NumAlterLogDirsReplicationQuotaSamples: Int = ReplicationQuotaManagerConfig.DefaultNumQuotaSamples
-  val AlterLogDirsReplicationQuotaWindowSizeSeconds: Int = ReplicationQuotaManagerConfig.DefaultQuotaWindowSizeSeconds
 
   /** ********* Transaction Configuration ***********/
   val TransactionalIdExpirationMsDefault = 604800000
@@ -196,6 +192,7 @@ object Defaults {
   val MetricRecordingLevel = Sensor.RecordingLevel.INFO.toString()
 
   /** ********* SSL configuration ***********/
+  val PrincipalBuilderClass = SslConfigs.DEFAULT_PRINCIPAL_BUILDER_CLASS
   val SslProtocol = SslConfigs.DEFAULT_SSL_PROTOCOL
   val SslEnabledProtocols = SslConfigs.DEFAULT_SSL_ENABLED_PROTOCOLS
   val SslKeystoreType = SslConfigs.DEFAULT_SSL_KEYSTORE_TYPE
@@ -214,7 +211,7 @@ object Defaults {
   val SaslKerberosTicketRenewWindowFactor = SaslConfigs.DEFAULT_KERBEROS_TICKET_RENEW_WINDOW_FACTOR
   val SaslKerberosTicketRenewJitter = SaslConfigs.DEFAULT_KERBEROS_TICKET_RENEW_JITTER
   val SaslKerberosMinTimeBeforeRelogin = SaslConfigs.DEFAULT_KERBEROS_MIN_TIME_BEFORE_RELOGIN
-  val SaslKerberosPrincipalToLocalRules = BrokerSecurityConfigs.DEFAULT_SASL_KERBEROS_PRINCIPAL_TO_LOCAL_RULES
+  val SaslKerberosPrincipalToLocalRules = SaslConfigs.DEFAULT_SASL_KERBEROS_PRINCIPAL_TO_LOCAL_RULES
 }
 
 object KafkaConfig {
@@ -239,7 +236,6 @@ object KafkaConfig {
   val NumNetworkThreadsProp = "num.network.threads"
   val NumIoThreadsProp = "num.io.threads"
   val BackgroundThreadsProp = "background.threads"
-  val NumReplicaAlterLogDirsThreadsProp = "num.replica.alter.log.dirs.threads"
   val QueuedMaxRequestsProp = "queued.max.requests"
   val QueuedMaxBytesProp = "queued.max.request.bytes"
   val RequestTimeoutMsProp = CommonClientConfigs.REQUEST_TIMEOUT_MS_CONFIG
@@ -366,10 +362,8 @@ object KafkaConfig {
   val ConsumerQuotaBytesPerSecondDefaultProp = "quota.consumer.default"
   val NumQuotaSamplesProp = "quota.window.num"
   val NumReplicationQuotaSamplesProp = "replication.quota.window.num"
-  val NumAlterLogDirsReplicationQuotaSamplesProp = "alter.log.dirs.replication.quota.window.num"
   val QuotaWindowSizeSecondsProp = "quota.window.size.seconds"
   val ReplicationQuotaWindowSizeSecondsProp = "replication.quota.window.size.seconds"
-  val AlterLogDirsReplicationQuotaWindowSizeSecondsProp = "alter.log.dirs.replication.quota.window.size.seconds"
 
   val DeleteTopicEnableProp = "delete.topic.enable"
   val CompressionTypeProp = "compression.type"
@@ -380,10 +374,8 @@ object KafkaConfig {
   val MetricReporterClassesProp: String = CommonClientConfigs.METRIC_REPORTER_CLASSES_CONFIG
   val MetricRecordingLevelProp: String = CommonClientConfigs.METRICS_RECORDING_LEVEL_CONFIG
 
-  /** ******** Common Security Configuration *************/
-  val PrincipalBuilderClassProp = BrokerSecurityConfigs.PRINCIPAL_BUILDER_CLASS_CONFIG
-
   /** ********* SSL Configuration ****************/
+  val PrincipalBuilderClassProp = SslConfigs.PRINCIPAL_BUILDER_CLASS_CONFIG
   val SslProtocolProp = SslConfigs.SSL_PROTOCOL_CONFIG
   val SslProviderProp = SslConfigs.SSL_PROVIDER_CONFIG
   val SslCipherSuitesProp = SslConfigs.SSL_CIPHER_SUITES_CONFIG
@@ -399,17 +391,17 @@ object KafkaConfig {
   val SslTrustManagerAlgorithmProp = SslConfigs.SSL_TRUSTMANAGER_ALGORITHM_CONFIG
   val SslEndpointIdentificationAlgorithmProp = SslConfigs.SSL_ENDPOINT_IDENTIFICATION_ALGORITHM_CONFIG
   val SslSecureRandomImplementationProp = SslConfigs.SSL_SECURE_RANDOM_IMPLEMENTATION_CONFIG
-  val SslClientAuthProp = BrokerSecurityConfigs.SSL_CLIENT_AUTH_CONFIG
+  val SslClientAuthProp = SslConfigs.SSL_CLIENT_AUTH_CONFIG
 
   /** ********* SASL Configuration ****************/
   val SaslMechanismInterBrokerProtocolProp = "sasl.mechanism.inter.broker.protocol"
-  val SaslEnabledMechanismsProp = BrokerSecurityConfigs.SASL_ENABLED_MECHANISMS_CONFIG
+  val SaslEnabledMechanismsProp = SaslConfigs.SASL_ENABLED_MECHANISMS
   val SaslKerberosServiceNameProp = SaslConfigs.SASL_KERBEROS_SERVICE_NAME
   val SaslKerberosKinitCmdProp = SaslConfigs.SASL_KERBEROS_KINIT_CMD
   val SaslKerberosTicketRenewWindowFactorProp = SaslConfigs.SASL_KERBEROS_TICKET_RENEW_WINDOW_FACTOR
   val SaslKerberosTicketRenewJitterProp = SaslConfigs.SASL_KERBEROS_TICKET_RENEW_JITTER
   val SaslKerberosMinTimeBeforeReloginProp = SaslConfigs.SASL_KERBEROS_MIN_TIME_BEFORE_RELOGIN
-  val SaslKerberosPrincipalToLocalRulesProp = BrokerSecurityConfigs.SASL_KERBEROS_PRINCIPAL_TO_LOCAL_RULES_CONFIG
+  val SaslKerberosPrincipalToLocalRulesProp = SaslConfigs.SASL_KERBEROS_PRINCIPAL_TO_LOCAL_RULES
 
   /* Documentation */
   /** ********* Zookeeper Configuration ***********/
@@ -428,7 +420,6 @@ object KafkaConfig {
     s"<p>This can be set per topic with the topic level <code>${TopicConfig.MAX_MESSAGE_BYTES_CONFIG}</code> config.</p>"
   val NumNetworkThreadsDoc = "The number of threads that the server uses for receiving requests from the network and sending responses to the network"
   val NumIoThreadsDoc = "The number of threads that the server uses for processing requests, which may include disk I/O"
-  val NumReplicaAlterLogDirsThreadsDoc = "The number of threads that can move replicas between log directories, which may include disk I/O"
   val BackgroundThreadsDoc = "The number of threads to use for various background processing tasks"
   val QueuedMaxRequestsDoc = "The number of queued requests allowed before blocking the network threads"
   val QueuedMaxRequestBytesDoc = "The number of queued bytes allowed before no more requests are read"
@@ -460,10 +451,9 @@ object KafkaConfig {
   "The port to publish to ZooKeeper for clients to use. In IaaS environments, this may " +
   "need to be different from the port to which the broker binds. If this is not set, " +
   "it will publish the same port that the broker binds to."
-  val AdvertisedListenersDoc = "Listeners to publish to ZooKeeper for clients to use, if different than the `listeners` config property." +
+  val AdvertisedListenersDoc = "Listeners to publish to ZooKeeper for clients to use, if different than the listeners above." +
   " In IaaS environments, this may need to be different from the interface to which the broker binds." +
-  " If this is not set, the value for `listeners` will be used." +
-  " Unlike `listeners` it is not valid to advertise the 0.0.0.0 meta-address."
+  " If this is not set, the value for `listeners` will be used."
   val ListenerSecurityProtocolMapDoc = "Map between listener names and security protocols. This must be defined for " +
     "the same security protocol to be usable in more than one port or IP. For example, we can separate internal and " +
     "external traffic even if SSL is required for both. Concretely, we could define listeners with names INTERNAL " +
@@ -577,8 +567,8 @@ object KafkaConfig {
   val LeaderImbalanceCheckIntervalSecondsDoc = "The frequency with which the partition rebalance check is triggered by the controller"
   val UncleanLeaderElectionEnableDoc = "Indicates whether to enable replicas not in the ISR set to be elected as leader as a last resort, even though doing so may result in data loss"
   val InterBrokerSecurityProtocolDoc = "Security protocol used to communicate between brokers. Valid values are: " +
-    s"${SecurityProtocol.names.asScala.mkString(", ")}. It is an error to set this and $InterBrokerListenerNameProp " +
-    "properties at the same time."
+    s"${SecurityProtocol.nonTestingValues.asScala.toSeq.map(_.name).mkString(", ")}. It is an error to set this and " +
+    s"$InterBrokerListenerNameProp properties at the same time."
   val InterBrokerProtocolVersionDoc = "Specify which version of the inter-broker protocol will be used.\n" +
   " This is typically bumped after all brokers were upgraded to a new version.\n" +
   " Example of some valid values are: 0.8.0, 0.8.1, 0.8.1.1, 0.8.2, 0.8.2.0, 0.8.2.1, 0.9.0.0, 0.9.0.1 Check ApiVersion for the full list."
@@ -625,10 +615,8 @@ object KafkaConfig {
   "Any consumer distinguished by clientId/consumer group will get throttled if it fetches more bytes than this value per-second"
   val NumQuotaSamplesDoc = "The number of samples to retain in memory for client quotas"
   val NumReplicationQuotaSamplesDoc = "The number of samples to retain in memory for replication quotas"
-  val NumAlterLogDirsReplicationQuotaSamplesDoc = "The number of samples to retain in memory for alter log dirs replication quotas"
   val QuotaWindowSizeSecondsDoc = "The time span of each sample for client quotas"
   val ReplicationQuotaWindowSizeSecondsDoc = "The time span of each sample for replication quotas"
-  val AlterLogDirsReplicationQuotaWindowSizeSecondsDoc = "The time span of each sample for alter log dirs replication quotas"
   /** ********* Transaction Configuration ***********/
   val TransactionIdExpirationMsDoc = "The maximum time of inactivity before a transactional id is expired by the " +
     "transaction coordinator. Note that this also influences producer id expiration: Producer ids are guaranteed to expire " +
@@ -646,10 +634,8 @@ object KafkaConfig {
   val MetricReporterClassesDoc = CommonClientConfigs.METRIC_REPORTER_CLASSES_DOC
   val MetricRecordingLevelDoc = CommonClientConfigs.METRICS_RECORDING_LEVEL_DOC
 
-  /** ******** Common Security Configuration *************/
-  val PrincipalBuilderClassDoc = BrokerSecurityConfigs.PRINCIPAL_BUILDER_CLASS_DOC
-
   /** ********* SSL Configuration ****************/
+  val PrincipalBuilderClassDoc = SslConfigs.PRINCIPAL_BUILDER_CLASS_DOC
   val SslProtocolDoc = SslConfigs.SSL_PROTOCOL_DOC
   val SslProviderDoc = SslConfigs.SSL_PROVIDER_DOC
   val SslCipherSuitesDoc = SslConfigs.SSL_CIPHER_SUITES_DOC
@@ -665,7 +651,7 @@ object KafkaConfig {
   val SslTrustManagerAlgorithmDoc = SslConfigs.SSL_TRUSTMANAGER_ALGORITHM_DOC
   val SslEndpointIdentificationAlgorithmDoc = SslConfigs.SSL_ENDPOINT_IDENTIFICATION_ALGORITHM_DOC
   val SslSecureRandomImplementationDoc = SslConfigs.SSL_SECURE_RANDOM_IMPLEMENTATION_DOC
-  val SslClientAuthDoc = BrokerSecurityConfigs.SSL_CLIENT_AUTH_DOC
+  val SslClientAuthDoc = SslConfigs.SSL_CLIENT_AUTH_DOC
 
   /** ********* Sasl Configuration ****************/
   val SaslMechanismInterBrokerProtocolDoc = "SASL mechanism used for inter-broker communication. Default is GSSAPI."
@@ -675,7 +661,7 @@ object KafkaConfig {
   val SaslKerberosTicketRenewWindowFactorDoc = SaslConfigs.SASL_KERBEROS_TICKET_RENEW_WINDOW_FACTOR_DOC
   val SaslKerberosTicketRenewJitterDoc = SaslConfigs.SASL_KERBEROS_TICKET_RENEW_JITTER_DOC
   val SaslKerberosMinTimeBeforeReloginDoc = SaslConfigs.SASL_KERBEROS_MIN_TIME_BEFORE_RELOGIN_DOC
-  val SaslKerberosPrincipalToLocalRulesDoc = BrokerSecurityConfigs.SASL_KERBEROS_PRINCIPAL_TO_LOCAL_RULES_DOC
+  val SaslKerberosPrincipalToLocalRulesDoc = SaslConfigs.SASL_KERBEROS_PRINCIPAL_TO_LOCAL_RULES_DOC
 
   private val configDef = {
     import ConfigDef.Importance._
@@ -699,7 +685,6 @@ object KafkaConfig {
       .define(MessageMaxBytesProp, INT, Defaults.MessageMaxBytes, atLeast(0), HIGH, MessageMaxBytesDoc)
       .define(NumNetworkThreadsProp, INT, Defaults.NumNetworkThreads, atLeast(1), HIGH, NumNetworkThreadsDoc)
       .define(NumIoThreadsProp, INT, Defaults.NumIoThreads, atLeast(1), HIGH, NumIoThreadsDoc)
-      .define(NumReplicaAlterLogDirsThreadsProp, INT, null, HIGH, NumReplicaAlterLogDirsThreadsDoc)
       .define(BackgroundThreadsProp, INT, Defaults.BackgroundThreads, atLeast(1), HIGH, BackgroundThreadsDoc)
       .define(QueuedMaxRequestsProp, INT, Defaults.QueuedMaxRequests, atLeast(1), HIGH, QueuedMaxRequestsDoc)
       .define(QueuedMaxBytesProp, LONG, Defaults.QueuedMaxRequestBytes, MEDIUM, QueuedMaxRequestBytesDoc)
@@ -843,13 +828,11 @@ object KafkaConfig {
       .define(ConsumerQuotaBytesPerSecondDefaultProp, LONG, Defaults.ConsumerQuotaBytesPerSecondDefault, atLeast(1), HIGH, ConsumerQuotaBytesPerSecondDefaultDoc)
       .define(NumQuotaSamplesProp, INT, Defaults.NumQuotaSamples, atLeast(1), LOW, NumQuotaSamplesDoc)
       .define(NumReplicationQuotaSamplesProp, INT, Defaults.NumReplicationQuotaSamples, atLeast(1), LOW, NumReplicationQuotaSamplesDoc)
-      .define(NumAlterLogDirsReplicationQuotaSamplesProp, INT, Defaults.NumAlterLogDirsReplicationQuotaSamples, atLeast(1), LOW, NumAlterLogDirsReplicationQuotaSamplesDoc)
       .define(QuotaWindowSizeSecondsProp, INT, Defaults.QuotaWindowSizeSeconds, atLeast(1), LOW, QuotaWindowSizeSecondsDoc)
       .define(ReplicationQuotaWindowSizeSecondsProp, INT, Defaults.ReplicationQuotaWindowSizeSeconds, atLeast(1), LOW, ReplicationQuotaWindowSizeSecondsDoc)
-      .define(AlterLogDirsReplicationQuotaWindowSizeSecondsProp, INT, Defaults.AlterLogDirsReplicationQuotaWindowSizeSeconds, atLeast(1), LOW, AlterLogDirsReplicationQuotaWindowSizeSecondsDoc)
 
       /** ********* SSL Configuration ****************/
-      .define(PrincipalBuilderClassProp, CLASS, null, MEDIUM, PrincipalBuilderClassDoc)
+      .define(PrincipalBuilderClassProp, CLASS, Defaults.PrincipalBuilderClass, MEDIUM, PrincipalBuilderClassDoc)
       .define(SslProtocolProp, STRING, Defaults.SslProtocol, MEDIUM, SslProtocolDoc)
       .define(SslProviderProp, STRING, null, MEDIUM, SslProviderDoc)
       .define(SslEnabledProtocolsProp, LIST, Defaults.SslEnabledProtocols, MEDIUM, SslEnabledProtocolsDoc)
@@ -892,8 +875,8 @@ object KafkaConfig {
 
   def fromProps(defaults: Properties, overrides: Properties, doLog: Boolean): KafkaConfig = {
     val props = new Properties()
-    props ++= defaults
-    props ++= overrides
+    props.putAll(defaults)
+    props.putAll(overrides)
     fromProps(props, doLog)
   }
 
@@ -925,11 +908,6 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean) extends Abstra
   val numIoThreads = getInt(KafkaConfig.NumIoThreadsProp)
   val messageMaxBytes = getInt(KafkaConfig.MessageMaxBytesProp)
   val requestTimeoutMs = getInt(KafkaConfig.RequestTimeoutMsProp)
-
-  def getNumReplicaAlterLogDirsThreads: Int = {
-    val numThreads: Integer = Option(getInt(KafkaConfig.NumReplicaAlterLogDirsThreadsProp)).getOrElse(logDirs.size)
-    numThreads
-  }
 
   /************* Authorizer Configuration ***********/
   val authorizerClassName: String = getString(KafkaConfig.AuthorizerClassNameProp)
@@ -1092,8 +1070,6 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean) extends Abstra
   val quotaWindowSizeSeconds = getInt(KafkaConfig.QuotaWindowSizeSecondsProp)
   val numReplicationQuotaSamples = getInt(KafkaConfig.NumReplicationQuotaSamplesProp)
   val replicationQuotaWindowSizeSeconds = getInt(KafkaConfig.ReplicationQuotaWindowSizeSecondsProp)
-  val numAlterLogDirsReplicationQuotaSamples = getInt(KafkaConfig.NumAlterLogDirsReplicationQuotaSamplesProp)
-  val alterLogDirsReplicationQuotaWindowSizeSeconds = getInt(KafkaConfig.AlterLogDirsReplicationQuotaWindowSizeSecondsProp)
 
   /** ********* Transaction Configuration **************/
   val transactionIdExpirationMs = getInt(KafkaConfig.TransactionalIdExpirationMsProp)
@@ -1169,7 +1145,7 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean) extends Abstra
   private def getSecurityProtocol(protocolName: String, configName: String): SecurityProtocol = {
     try SecurityProtocol.forName(protocolName)
     catch {
-      case _: IllegalArgumentException =>
+      case e: IllegalArgumentException =>
         throw new ConfigException(s"Invalid security protocol `$protocolName` defined in $configName")
     }
   }
@@ -1213,9 +1189,6 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean) extends Abstra
       s"Found ${advertisedListenerNames.map(_.value).mkString(",")}. The valid options based on the current configuration " +
       s"are ${listenerNames.map(_.value).mkString(",")}"
     )
-    require(!advertisedListeners.exists(endpoint => endpoint.host=="0.0.0.0"),
-      s"${KafkaConfig.AdvertisedListenersProp} cannot use the nonroutable meta-address 0.0.0.0. "+
-      s"Use a routable IP address.")
     require(interBrokerProtocolVersion >= logMessageFormatVersion,
       s"log.message.format.version $logMessageFormatVersionString cannot be used when inter.broker.protocol.version is set to $interBrokerProtocolVersionString")
     val interBrokerUsesSasl = interBrokerSecurityProtocol == SecurityProtocol.SASL_PLAINTEXT || interBrokerSecurityProtocol == SecurityProtocol.SASL_SSL

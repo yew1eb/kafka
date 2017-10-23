@@ -23,17 +23,17 @@ import org.apache.kafka.streams.kstream.Windowed;
 import org.apache.kafka.streams.state.KeyValueIterator;
 import org.apache.kafka.streams.state.StateSerdes;
 
-class MergedSortedCacheWindowStoreKeyValueIterator
-    extends AbstractMergedSortedCacheStoreIterator<Windowed<Bytes>, Windowed<Bytes>, byte[], byte[]> {
+class MergedSortedCacheWindowStoreKeyValueIterator<K, V>
+    extends AbstractMergedSortedCacheStoreIterator<Windowed<K>, Windowed<Bytes>, V, byte[]> {
 
-    private final StateSerdes<Bytes, byte[]> serdes;
+    private final StateSerdes<K, V> serdes;
     private final long windowSize;
     private final SegmentedCacheFunction cacheFunction;
 
     MergedSortedCacheWindowStoreKeyValueIterator(
         final PeekingKeyValueIterator<Bytes, LRUCacheEntry> filteredCacheIterator,
         final KeyValueIterator<Windowed<Bytes>, byte[]> underlyingIterator,
-        final StateSerdes<Bytes, byte[]> serdes,
+        final StateSerdes<K, V> serdes,
         final long windowSize,
         final SegmentedCacheFunction cacheFunction
     ) {
@@ -44,27 +44,27 @@ class MergedSortedCacheWindowStoreKeyValueIterator
     }
 
     @Override
-    Windowed<Bytes> deserializeStoreKey(final Windowed<Bytes> key) {
-        return key;
+    Windowed<K> deserializeStoreKey(final Windowed<Bytes> key) {
+        return new Windowed<>(serdes.keyFrom(key.key().get()), key.window());
     }
 
     @Override
-    KeyValue<Windowed<Bytes>, byte[]> deserializeStorePair(final KeyValue<Windowed<Bytes>, byte[]> pair) {
-        return pair;
+    KeyValue<Windowed<K>, V> deserializeStorePair(final KeyValue<Windowed<Bytes>, byte[]> pair) {
+        return KeyValue.pair(deserializeStoreKey(pair.key), serdes.valueFrom(pair.value));
     }
 
     @Override
-    Windowed<Bytes> deserializeCacheKey(final Bytes cacheKey) {
+    Windowed<K> deserializeCacheKey(final Bytes cacheKey) {
         byte[] binaryKey = cacheFunction.key(cacheKey).get();
 
         final long timestamp = WindowStoreUtils.timestampFromBinaryKey(binaryKey);
-        final Bytes key = WindowStoreUtils.keyFromBinaryKey(binaryKey, serdes);
+        final K key = WindowStoreUtils.keyFromBinaryKey(binaryKey, serdes);
         return new Windowed<>(key, WindowStoreUtils.timeWindowForSize(timestamp, windowSize));
     }
 
     @Override
-    byte[] deserializeCacheValue(final LRUCacheEntry cacheEntry) {
-        return cacheEntry.value;
+    V deserializeCacheValue(final LRUCacheEntry cacheEntry) {
+        return serdes.valueFrom(cacheEntry.value);
     }
 
     @Override

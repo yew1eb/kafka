@@ -18,7 +18,6 @@ package org.apache.kafka.streams.kstream.internals;
 
 import org.apache.kafka.common.serialization.Serde;
 import org.apache.kafka.common.serialization.Serdes;
-import org.apache.kafka.streams.Consumed;
 import org.apache.kafka.streams.StreamsBuilder;
 import org.apache.kafka.streams.kstream.ForeachAction;
 import org.apache.kafka.streams.kstream.KStream;
@@ -62,7 +61,7 @@ public class KStreamSelectKeyTest {
         final String[] expected = new String[]{"ONE:1", "TWO:2", "THREE:3"};
         final int[] expectedValues = new int[]{1, 2, 3};
 
-        KStream<String, Integer>  stream = builder.stream(topicName, Consumed.with(stringSerde, integerSerde));
+        KStream<String, Integer>  stream = builder.stream(stringSerde, integerSerde, topicName);
 
         MockProcessorSupplier<String, Integer> processor = new MockProcessorSupplier<>();
 

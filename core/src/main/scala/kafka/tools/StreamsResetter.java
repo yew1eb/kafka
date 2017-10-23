@@ -16,33 +16,32 @@
  */
 package kafka.tools;
 
+
 import joptsimple.OptionException;
 import joptsimple.OptionParser;
 import joptsimple.OptionSet;
 import joptsimple.OptionSpec;
 import joptsimple.OptionSpecBuilder;
-import org.apache.kafka.clients.admin.AdminClient;
-import org.apache.kafka.clients.admin.DeleteTopicsResult;
-import org.apache.kafka.clients.admin.KafkaAdminClient;
+
+import kafka.admin.AdminClient;
+import kafka.admin.TopicCommand;
+import kafka.utils.ZkUtils;
+
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
-import org.apache.kafka.common.KafkaFuture;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.annotation.InterfaceStability;
+import org.apache.kafka.common.security.JaasUtils;
 import org.apache.kafka.common.serialization.ByteArrayDeserializer;
 import org.apache.kafka.common.utils.Exit;
-import org.apache.kafka.common.utils.Utils;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
-import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
-import java.util.concurrent.TimeUnit;
 
 /**
  * {@link StreamsResetter} resets the processing state of a Kafka Streams application so that, for example, you can reprocess its input from scratch.
@@ -71,13 +70,14 @@ public class StreamsResetter {
     private static final int EXIT_CODE_ERROR = 1;
 
     private static OptionSpec<String> bootstrapServerOption;
+    private static OptionSpec<String> zookeeperOption;
     private static OptionSpec<String> applicationIdOption;
     private static OptionSpec<String> inputTopicsOption;
     private static OptionSpec<String> intermediateTopicsOption;
     private static OptionSpecBuilder dryRunOption;
-    private static OptionSpec<String> commandConfigOption;
 
     private OptionSet options = null;
+    private final Properties consumerConfig = new Properties();
     private final List<String> allTopics = new LinkedList<>();
     private boolean dryRun = false;
 
@@ -85,65 +85,55 @@ public class StreamsResetter {
         return run(args, new Properties());
     }
 
-    public int run(final String[] args,
-                   final Properties config) {
+    public int run(final String[] args, final Properties config) {
+        consumerConfig.clear();
+        consumerConfig.putAll(config);
+
         int exitCode = EXIT_CODE_SUCCESS;
 
-        KafkaAdminClient kafkaAdminClient = null;
-
+        AdminClient adminClient = null;
+        ZkUtils zkUtils = null;
         try {
             parseArguments(args);
             dryRun = options.has(dryRunOption);
 
+            adminClient = AdminClient.createSimplePlaintext(options.valueOf(bootstrapServerOption));
             final String groupId = options.valueOf(applicationIdOption);
-            final Properties properties = new Properties();
-            if (options.has(commandConfigOption)) {
-                properties.putAll(Utils.loadProps(options.valueOf(commandConfigOption)));
-            }
-            properties.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, options.valueOf(bootstrapServerOption));
 
-            validateNoActiveConsumers(groupId, properties);
-            kafkaAdminClient = (KafkaAdminClient) AdminClient.create(properties);
+
+            zkUtils = ZkUtils.apply(options.valueOf(zookeeperOption),
+                30000,
+                30000,
+                JaasUtils.isZkSecurityEnabled());
 
             allTopics.clear();
-            allTopics.addAll(kafkaAdminClient.listTopics().names().get(60, TimeUnit.SECONDS));
+            allTopics.addAll(scala.collection.JavaConversions.seqAsJavaList(zkUtils.getAllTopics()));
+
+
+            if (!adminClient.describeConsumerGroup(groupId, 0).consumers().get().isEmpty()) {
+                throw new IllegalStateException("Consumer group '" + groupId + "' is still active. " +
+                            "Make sure to stop all running application instances before running the reset tool.");
+            }
 
             if (dryRun) {
                 System.out.println("----Dry run displays the actions which will be performed when running Streams Reset Tool----");
             }
-
-            final HashMap<Object, Object> consumerConfig = new HashMap<>(config);
-            consumerConfig.putAll(properties);
-            maybeResetInputAndSeekToEndIntermediateTopicOffsets(consumerConfig);
-            maybeDeleteInternalTopics(kafkaAdminClient);
+            maybeResetInputAndSeekToEndIntermediateTopicOffsets();
+            maybeDeleteInternalTopics(zkUtils);
 
         } catch (final Throwable e) {
             exitCode = EXIT_CODE_ERROR;
-            System.err.println("ERROR: " + e);
-            e.printStackTrace(System.err);
+            System.err.println("ERROR: " + e.getMessage());
         } finally {
-            if (kafkaAdminClient != null) {
-                kafkaAdminClient.close(60, TimeUnit.SECONDS);
+            if (adminClient != null) {
+                adminClient.close();
+            }
+            if (zkUtils != null) {
+                zkUtils.close();
             }
         }
 
         return exitCode;
-    }
-
-    private void validateNoActiveConsumers(final String groupId,
-                                           final Properties properties) {
-        kafka.admin.AdminClient olderAdminClient = null;
-        try {
-            olderAdminClient = kafka.admin.AdminClient.create(properties);
-            if (!olderAdminClient.describeConsumerGroup(groupId, 0).consumers().get().isEmpty()) {
-                throw new IllegalStateException("Consumer group '" + groupId + "' is still active. "
-                                                + "Make sure to stop all running application instances before running the reset tool.");
-            }
-        } finally {
-            if (olderAdminClient != null) {
-                olderAdminClient.close();
-            }
-        }
     }
 
     private void parseArguments(final String[] args) throws IOException {
@@ -159,6 +149,11 @@ public class StreamsResetter {
             .ofType(String.class)
             .defaultsTo("localhost:9092")
             .describedAs("urls");
+        zookeeperOption = optionParser.accepts("zookeeper", "Zookeeper url with format: HOST:POST")
+            .withRequiredArg()
+            .ofType(String.class)
+            .defaultsTo("localhost:2181")
+            .describedAs("url");
         inputTopicsOption = optionParser.accepts("input-topics", "Comma-separated list of user input topics. For these topics, the tool will reset the offset to the earliest available offset.")
             .withRequiredArg()
             .ofType(String.class)
@@ -169,14 +164,7 @@ public class StreamsResetter {
             .ofType(String.class)
             .withValuesSeparatedBy(',')
             .describedAs("list");
-        commandConfigOption = optionParser.accepts("config-file", "Property file containing configs to be passed to admin clients and embedded consumer.")
-            .withRequiredArg()
-            .ofType(String.class)
-            .describedAs("file name");
         dryRunOption = optionParser.accepts("dry-run", "Display the actions that would be performed without executing the reset commands.");
-
-        // TODO: deprecated in 1.0; can be removed eventually
-        optionParser.accepts("zookeeper", "Zookeeper option is deprecated by bootstrap.servers, as the reset tool would no longer access Zookeeper directly.");
 
         try {
             options = optionParser.parse(args);
@@ -186,7 +174,7 @@ public class StreamsResetter {
         }
     }
 
-    private void maybeResetInputAndSeekToEndIntermediateTopicOffsets(final Map consumerConfig) {
+    private void maybeResetInputAndSeekToEndIntermediateTopicOffsets() {
         final List<String> inputTopics = options.valuesOf(inputTopicsOption);
         final List<String> intermediateTopics = options.valuesOf(intermediateTopicsOption);
 
@@ -227,6 +215,7 @@ public class StreamsResetter {
 
         final Properties config = new Properties();
         config.putAll(consumerConfig);
+        config.setProperty(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, options.valueOf(bootstrapServerOption));
         config.setProperty(ConsumerConfig.GROUP_ID_CONFIG, groupId);
         config.setProperty(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false");
 
@@ -281,8 +270,7 @@ public class StreamsResetter {
         System.out.println("Done.");
     }
 
-    private void maybeSeekToEnd(final KafkaConsumer<byte[], byte[]> client,
-                                final Set<TopicPartition> intermediateTopicPartitions) {
+    private void maybeSeekToEnd(final KafkaConsumer<byte[], byte[]> client, final Set<TopicPartition> intermediateTopicPartitions) {
 
         final String groupId = options.valueOf(applicationIdOption);
         final List<String> intermediateTopics = options.valuesOf(intermediateTopicsOption);
@@ -327,45 +315,29 @@ public class StreamsResetter {
         return options.valuesOf(intermediateTopicsOption).contains(topic);
     }
 
-    private void maybeDeleteInternalTopics(final KafkaAdminClient adminClient) {
+    private void maybeDeleteInternalTopics(final ZkUtils zkUtils) {
 
         System.out.println("Deleting all internal/auto-created topics for application " + options.valueOf(applicationIdOption));
-        List<String> topicsToDelete = new ArrayList<>();
-        for (final String listing : allTopics) {
-            if (isInternalTopic(listing)) {
-                if (!dryRun) {
-                    topicsToDelete.add(listing);
-                } else {
-                    System.out.println("Topic: " + listing);
+
+        for (final String topic : allTopics) {
+            if (isInternalTopic(topic)) {
+                try {
+                    if (!dryRun) {
+                        final TopicCommand.TopicCommandOptions commandOptions = new TopicCommand.TopicCommandOptions(new String[]{
+                            "--zookeeper", options.valueOf(zookeeperOption),
+                            "--delete", "--topic", topic});
+                        TopicCommand.deleteTopic(zkUtils, commandOptions);
+                    } else {
+                        System.out.println("Topic: " + topic);
+                    }
+                } catch (final RuntimeException e) {
+                    System.err.println("ERROR: Deleting topic " + topic + " failed.");
+                    throw e;
                 }
             }
         }
-        if (!dryRun) {
-            doDelete(topicsToDelete, adminClient);
-        }
         System.out.println("Done.");
     }
-
-    private void doDelete(final List<String> topicsToDelete,
-                          final KafkaAdminClient adminClient) {
-        boolean hasDeleteErrors = false;
-        final DeleteTopicsResult deleteTopicsResult = adminClient.deleteTopics(topicsToDelete);
-        final Map<String, KafkaFuture<Void>> results = deleteTopicsResult.values();
-
-        for (final Map.Entry<String, KafkaFuture<Void>> entry : results.entrySet()) {
-            try {
-                entry.getValue().get(30, TimeUnit.SECONDS);
-            } catch (Exception e) {
-                System.err.println("ERROR: deleting topic " + entry.getKey());
-                e.printStackTrace(System.err);
-                hasDeleteErrors = true;
-            }
-        }
-        if (hasDeleteErrors) {
-            throw new RuntimeException("Encountered an error deleting one or more topics");
-        }
-    }
-
 
     private boolean isInternalTopic(final String topicName) {
         return topicName.startsWith(options.valueOf(applicationIdOption) + "-")

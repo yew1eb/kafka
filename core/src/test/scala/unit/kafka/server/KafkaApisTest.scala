@@ -28,6 +28,7 @@ import kafka.coordinator.group.GroupCoordinator
 import kafka.coordinator.transaction.TransactionCoordinator
 import kafka.log.{Log, TimestampOffset}
 import kafka.network.RequestChannel
+import kafka.network.RequestChannel.Session
 import kafka.security.auth.Authorizer
 import kafka.server.QuotaFactory.QuotaManagers
 import kafka.server._
@@ -37,12 +38,12 @@ import org.apache.kafka.common.errors.UnsupportedVersionException
 import org.apache.kafka.common.memory.MemoryPool
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.network.ListenerName
-import org.apache.kafka.common.protocol.{ApiKeys, Errors}
+import org.apache.kafka.common.protocol.{ApiKeys, Errors, SecurityProtocol}
 import org.apache.kafka.common.record.RecordBatch
 import org.apache.kafka.common.requests.ProduceResponse.PartitionResponse
 import org.apache.kafka.common.requests.WriteTxnMarkersRequest.TxnMarkerEntry
 import org.apache.kafka.common.requests._
-import org.apache.kafka.common.security.auth.{KafkaPrincipal, SecurityProtocol}
+import org.apache.kafka.common.security.auth.KafkaPrincipal
 import org.apache.kafka.common.utils.Utils
 import org.easymock.{Capture, EasyMock, IAnswer}
 import org.junit.Assert.{assertEquals, assertTrue}
@@ -54,7 +55,6 @@ import scala.collection.Map
 class KafkaApisTest {
 
   private val requestChannel = EasyMock.createNiceMock(classOf[RequestChannel])
-  private val requestChannelMetrics = EasyMock.createNiceMock(classOf[RequestChannel.Metrics])
   private val replicaManager = EasyMock.createNiceMock(classOf[ReplicaManager])
   private val groupCoordinator = EasyMock.createNiceMock(classOf[GroupCoordinator])
   private val adminManager = EasyMock.createNiceMock(classOf[AdminManager])
@@ -68,7 +68,7 @@ class KafkaApisTest {
   private val clientQuotaManager = EasyMock.createNiceMock(classOf[ClientQuotaManager])
   private val clientRequestQuotaManager = EasyMock.createNiceMock(classOf[ClientRequestQuotaManager])
   private val replicaQuotaManager = EasyMock.createNiceMock(classOf[ReplicationQuotaManager])
-  private val quotas = QuotaManagers(clientQuotaManager, clientQuotaManager, clientRequestQuotaManager, replicaQuotaManager, replicaQuotaManager, replicaQuotaManager)
+  private val quotas = QuotaManagers(clientQuotaManager, clientQuotaManager, clientRequestQuotaManager, replicaQuotaManager, replicaQuotaManager)
   private val brokerTopicStats = new BrokerTopicStats
   private val clusterId = "clusterId"
   private val time = new MockTime
@@ -180,7 +180,6 @@ class KafkaApisTest {
       EasyMock.eq(false),
       EasyMock.anyObject(),
       EasyMock.capture(responseCallback),
-      EasyMock.anyObject(),
       EasyMock.anyObject())).andAnswer(new IAnswer[Unit] {
       override def answer(): Unit = {
         responseCallback.getValue.apply(Map(tp2 -> new PartitionResponse(Errors.NONE)))
@@ -219,7 +218,6 @@ class KafkaApisTest {
       EasyMock.eq(false),
       EasyMock.anyObject(),
       EasyMock.capture(responseCallback),
-      EasyMock.anyObject(),
       EasyMock.anyObject())).andAnswer(new IAnswer[Unit] {
       override def answer(): Unit = {
         responseCallback.getValue.apply(Map(tp2 -> new PartitionResponse(Errors.NONE)))
@@ -248,7 +246,6 @@ class KafkaApisTest {
       EasyMock.anyShort(),
       EasyMock.eq(true),
       EasyMock.eq(false),
-      EasyMock.anyObject(),
       EasyMock.anyObject(),
       EasyMock.anyObject(),
       EasyMock.anyObject()))
@@ -396,14 +393,11 @@ class KafkaApisTest {
 
   private def buildRequest[T <: AbstractRequest](builder: AbstractRequest.Builder[T]): (T, RequestChannel.Request) = {
     val request = builder.build()
-    val buffer = request.serialize(new RequestHeader(builder.apiKey, request.version, "", 0))
-
-    // read the header from the buffer first so that the body can be read next from the Request constructor
-    val header = RequestHeader.parse(buffer)
-    val context = new RequestContext(header, "1", InetAddress.getLocalHost, KafkaPrincipal.ANONYMOUS,
-      new ListenerName(""), SecurityProtocol.PLAINTEXT)
-    (request, new RequestChannel.Request(processor = 1, context = context, startTimeNanos =  0,
-      MemoryPool.NONE, buffer, requestChannelMetrics))
+    val header = new RequestHeader(builder.apiKey.id, request.version, "", 0)
+    val buffer = request.serialize(header)
+    val session = Session(KafkaPrincipal.ANONYMOUS, InetAddress.getLocalHost)
+    (request, new RequestChannel.Request(1, "1", session, 0, new ListenerName(""), SecurityProtocol.PLAINTEXT,
+      MemoryPool.NONE, buffer))
   }
 
   private def readResponse(api: ApiKeys, request: AbstractRequest, capturedResponse: Capture[RequestChannel.Response]): AbstractResponse = {
@@ -414,13 +408,16 @@ class KafkaApisTest {
     channel.buffer.getInt() // read the size
     ResponseHeader.parse(channel.buffer)
     val struct = api.responseSchema(request.version).read(channel.buffer)
-    AbstractResponse.parseResponse(api, struct)
+    AbstractResponse.getResponse(api, struct)
   }
 
   private def expectThrottleCallbackAndInvoke(capturedThrottleCallback: Capture[Int => Unit]): Unit = {
     EasyMock.expect(clientRequestQuotaManager.maybeRecordAndThrottle(
-      EasyMock.anyObject[RequestChannel.Request](),
-      EasyMock.capture(capturedThrottleCallback)))
+      EasyMock.anyString(),
+      EasyMock.anyString(),
+      EasyMock.anyLong(),
+      EasyMock.capture(capturedThrottleCallback),
+      EasyMock.anyObject[(Long => Unit) => Unit]()))
       .andAnswer(new IAnswer[Unit] {
         override def answer(): Unit = {
           val callback = capturedThrottleCallback.getValue

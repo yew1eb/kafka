@@ -27,7 +27,7 @@ import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.record.RecordBatch
 import org.apache.kafka.common.requests.TransactionResult
-import org.apache.kafka.common.utils.{LogContext, Time}
+import org.apache.kafka.common.utils.Time
 
 object TransactionCoordinator {
 
@@ -52,16 +52,11 @@ object TransactionCoordinator {
 
     val producerIdManager = new ProducerIdManager(config.brokerId, zkUtils)
     // we do not need to turn on reaper thread since no tasks will be expired and there are no completed tasks to be purged
-    val txnMarkerPurgatory = DelayedOperationPurgatory[DelayedTxnMarker]("txn-marker-purgatory", config.brokerId,
-      reaperEnabled = false, timerEnabled = false)
+    val txnMarkerPurgatory = DelayedOperationPurgatory[DelayedTxnMarker]("txn-marker-purgatory", config.brokerId, reaperEnabled = false, timerEnabled = false)
     val txnStateManager = new TransactionStateManager(config.brokerId, zkUtils, scheduler, replicaManager, txnConfig, time)
+    val txnMarkerChannelManager = TransactionMarkerChannelManager(config, metrics, metadataCache, txnStateManager, txnMarkerPurgatory, time)
 
-    val logContext = new LogContext(s"[TransactionCoordinator id=${config.brokerId}] ")
-    val txnMarkerChannelManager = TransactionMarkerChannelManager(config, metrics, metadataCache, txnStateManager,
-      txnMarkerPurgatory, time, logContext)
-
-    new TransactionCoordinator(config.brokerId, scheduler, producerIdManager, txnStateManager, txnMarkerChannelManager,
-      time, logContext)
+    new TransactionCoordinator(config.brokerId, scheduler, producerIdManager, txnStateManager, txnMarkerChannelManager, time)
   }
 
   private def initTransactionError(error: Errors): InitProducerIdResult = {
@@ -86,9 +81,8 @@ class TransactionCoordinator(brokerId: Int,
                              producerIdManager: ProducerIdManager,
                              txnManager: TransactionStateManager,
                              txnMarkerChannelManager: TransactionMarkerChannelManager,
-                             time: Time,
-                             logContext: LogContext) extends Logging {
-  this.logIdent = logContext.logPrefix
+                             time: Time) extends Logging {
+  this.logIdent = "[Transaction Coordinator " + brokerId + "]: "
 
   import TransactionCoordinator._
 
@@ -137,7 +131,7 @@ class TransactionCoordinator(brokerId: Int,
           val coordinatorEpoch = existingEpochAndMetadata.coordinatorEpoch
           val txnMetadata = existingEpochAndMetadata.transactionMetadata
 
-          txnMetadata.inLock {
+          txnMetadata synchronized {
             prepareInitProduceIdTransit(transactionalId, transactionTimeoutMs, coordinatorEpoch, txnMetadata)
           }
       }
@@ -241,7 +235,7 @@ class TransactionCoordinator(brokerId: Int,
           val txnMetadata = epochAndMetadata.transactionMetadata
 
           // generate the new transaction metadata with added partitions
-          txnMetadata.inLock {
+          txnMetadata synchronized {
             if (txnMetadata.producerId != producerId) {
               Left(Errors.INVALID_PRODUCER_ID_MAPPING)
             } else if (txnMetadata.producerEpoch != producerEpoch) {
@@ -304,7 +298,7 @@ class TransactionCoordinator(brokerId: Int,
           val txnMetadata = epochAndTxnMetadata.transactionMetadata
           val coordinatorEpoch = epochAndTxnMetadata.coordinatorEpoch
 
-          txnMetadata.inLock {
+          txnMetadata synchronized {
             if (txnMetadata.producerId != producerId)
               Left(Errors.INVALID_PRODUCER_ID_MAPPING)
             else if (txnMetadata.producerEpoch != producerEpoch)
@@ -368,7 +362,7 @@ class TransactionCoordinator(brokerId: Int,
                 case Some(epochAndMetadata) =>
                   if (epochAndMetadata.coordinatorEpoch == coordinatorEpoch) {
                     val txnMetadata = epochAndMetadata.transactionMetadata
-                    txnMetadata.inLock {
+                    txnMetadata synchronized {
                       if (txnMetadata.producerId != producerId)
                         Left(Errors.INVALID_PRODUCER_ID_MAPPING)
                       else if (txnMetadata.producerEpoch != producerEpoch)

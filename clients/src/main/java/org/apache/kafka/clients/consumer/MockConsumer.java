@@ -111,11 +111,6 @@ public class MockConsumer<K, V> implements Consumer<K, V> {
     }
 
     @Override
-    public synchronized void subscribe(Pattern pattern) {
-        subscribe(pattern, new NoOpConsumerRebalanceListener());
-    }
-
-    @Override
     public synchronized void subscribe(Collection<String> topics, final ConsumerRebalanceListener listener) {
         ensureNotClosed();
         this.subscriptions.subscribe(new HashSet<>(topics), listener);

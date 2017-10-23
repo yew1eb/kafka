@@ -22,7 +22,6 @@ import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.common.serialization.Serializer;
 import org.apache.kafka.common.utils.Bytes;
-import org.apache.kafka.common.utils.LogContext;
 import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.streams.KeyValue;
 import org.apache.kafka.streams.errors.InvalidStateStoreException;
@@ -73,10 +72,10 @@ public class RocksDBWindowStoreTest {
     private final StateSerdes<Integer, String> serdes = new StateSerdes<>("", Serdes.Integer(), Serdes.String());
 
     private final List<KeyValue<byte[], byte[]>> changeLog = new ArrayList<>();
-    private final ThreadCache cache = new ThreadCache(new LogContext("TestCache "), DEFAULT_CACHE_SIZE_BYTES, new MockStreamsMetrics(new Metrics()));
+    private final ThreadCache cache = new ThreadCache("TestCache", DEFAULT_CACHE_SIZE_BYTES, new MockStreamsMetrics(new Metrics()));
 
     private final Producer<byte[], byte[]> producer = new MockProducer<>(true, Serdes.ByteArray().serializer(), Serdes.ByteArray().serializer());
-    private final RecordCollector recordCollector = new RecordCollectorImpl(producer, "RocksDBWindowStoreTestTask", new LogContext("RocksDBWindowStoreTestTask ")) {
+    private final RecordCollector recordCollector = new RecordCollectorImpl(producer, "RocksDBWindowStoreTestTask") {
         @Override
         public <K1, V1> void send(final String topic,
                                   K1 key,
@@ -113,7 +112,7 @@ public class RocksDBWindowStoreTest {
 
     @SuppressWarnings("unchecked")
     @Test
-    public void shouldOnlyIterateOpenSegments() {
+    public void shouldOnlyIterateOpenSegments() throws Exception {
         windowStore = createWindowStore(context, false, true);
         long currentTime = 0;
         context.setRecordContext(createRecordContext(currentTime));
@@ -363,6 +362,11 @@ public class RocksDBWindowStoreTest {
         assertEquals(Utils.mkSet("zero@0", "zero@0", "zero+@0", "zero++@0"), entriesByKey.get(0));
     }
 
+    @Test
+    public void testCachingEnabled() throws IOException {
+        windowStore = createWindowStore(context, true, false);
+        assertTrue(windowStore instanceof CachedStateStore);
+    }
 
     @SuppressWarnings("unchecked")
     @Test
@@ -641,7 +645,7 @@ public class RocksDBWindowStoreTest {
 
     @SuppressWarnings("unchecked")
     @Test
-    public void shouldCloseOpenIteratorsWhenStoreIsClosedAndThrowInvalidStateStoreExceptionOnHasNextAndNext() {
+    public void shouldCloseOpenIteratorsWhenStoreIsClosedAndThrowInvalidStateStoreExceptionOnHasNextAndNext() throws Exception {
         windowStore = createWindowStore(context, false, true);
         context.setRecordContext(createRecordContext(0));
         windowStore.put(1, "one", 1L);
@@ -668,7 +672,7 @@ public class RocksDBWindowStoreTest {
 
     @SuppressWarnings("unchecked")
     @Test
-    public void shouldFetchAndIterateOverExactKeys() {
+    public void shouldFetchAndIterateOverExactKeys() throws Exception {
         final long windowSize = 0x7a00000000000000L;
         final long retentionPeriod = 0x7a00000000000000L;
         final RocksDBWindowStoreSupplier<String, String> supplier =
@@ -711,38 +715,38 @@ public class RocksDBWindowStoreTest {
     }
 
     @Test(expected = NullPointerException.class)
-    public void shouldThrowNullPointerExceptionOnPutNullKey() {
+    public void shouldThrowNullPointerExceptionOnPutNullKey() throws Exception {
         windowStore = createWindowStore(context, false, true);
         windowStore.put(null, "anyValue");
     }
 
     @Test
-    public void shouldNotThrowNullPointerExceptionOnPutNullValue() {
+    public void shouldNotThrowNullPointerExceptionOnPutNullValue() throws Exception {
         windowStore = createWindowStore(context, false, true);
         windowStore.put(1, null);
     }
 
     @Test(expected = NullPointerException.class)
-    public void shouldThrowNullPointerExceptionOnGetNullKey() {
+    public void shouldThrowNullPointerExceptionOnGetNullKey() throws Exception {
         windowStore = createWindowStore(context, false, true);
         windowStore.fetch(null, 1L, 2L);
     }
 
     @Test(expected = NullPointerException.class)
-    public void shouldThrowNullPointerExceptionOnRangeNullFromKey() {
+    public void shouldThrowNullPointerExceptionOnRangeNullFromKey() throws Exception {
         windowStore = createWindowStore(context, false, true);
         windowStore.fetch(null, 2, 1L, 2L);
     }
 
     @Test(expected = NullPointerException.class)
-    public void shouldThrowNullPointerExceptionOnRangeNullToKey() {
+    public void shouldThrowNullPointerExceptionOnRangeNullToKey() throws Exception {
         windowStore = createWindowStore(context, false, true);
         windowStore.fetch(1, null, 1L, 2L);
     }
 
     @SuppressWarnings("unchecked")
     @Test
-    public void shouldFetchAndIterateOverExactBinaryKeys() {
+    public void shouldFetchAndIterateOverExactBinaryKeys() throws Exception {
         final RocksDBWindowStoreSupplier<Bytes, String> supplier =
                 new RocksDBWindowStoreSupplier<>(
                         "window",

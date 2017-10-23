@@ -51,19 +51,19 @@ public class SerializedKeyValueIteratorTest {
     }
 
     @Test
-    public void shouldReturnNextValueWhenItExists() {
+    public void shouldReturnNextValueWhenItExists() throws Exception {
         assertThat(serializedKeyValueIterator.next(), equalTo(KeyValue.pair("hi", "there")));
         assertThat(serializedKeyValueIterator.next(), equalTo(KeyValue.pair("hello", "world")));
     }
 
     @Test
-    public void shouldReturnFalseOnHasNextWhenNoMoreResults() {
+    public void shouldReturnFalseOnHasNextWhenNoMoreResults() throws Exception {
         advanceIteratorToEnd();
         assertFalse(serializedKeyValueIterator.hasNext());
     }
 
     @Test
-    public void shouldThrowNoSuchElementOnNextWhenIteratorExhausted() {
+    public void shouldThrowNoSuchElementOnNextWhenIteratorExhausted() throws Exception {
         advanceIteratorToEnd();
         try {
             serializedKeyValueIterator.next();
@@ -74,14 +74,14 @@ public class SerializedKeyValueIteratorTest {
     }
 
     @Test
-    public void shouldPeekNextKey() {
+    public void shouldPeekNextKey() throws Exception {
         assertThat(serializedKeyValueIterator.peekNextKey(), equalTo("hi"));
         serializedKeyValueIterator.next();
         assertThat(serializedKeyValueIterator.peekNextKey(), equalTo("hello"));
     }
 
     @Test(expected = UnsupportedOperationException.class)
-    public void shouldThrowUnsupportedOperationOnRemove() {
+    public void shouldThrowUnsupportedOperationOnRemove() throws Exception {
         serializedKeyValueIterator.remove();
     }
 

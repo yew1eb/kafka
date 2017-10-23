@@ -30,28 +30,20 @@ public class ConnectorInfo {
     private final String name;
     private final Map<String, String> config;
     private final List<ConnectorTaskId> tasks;
-    private final ConnectorType type;
 
     @JsonCreator
     public ConnectorInfo(@JsonProperty("name") String name,
                          @JsonProperty("config") Map<String, String> config,
-                         @JsonProperty("tasks") List<ConnectorTaskId> tasks,
-                         @JsonProperty("type") ConnectorType type) {
+                         @JsonProperty("tasks") List<ConnectorTaskId> tasks) {
         this.name = name;
         this.config = config;
         this.tasks = tasks;
-        this.type = type;
     }
 
 
     @JsonProperty
     public String name() {
         return name;
-    }
-
-    @JsonProperty
-    public ConnectorType type() {
-        return type;
     }
 
     @JsonProperty

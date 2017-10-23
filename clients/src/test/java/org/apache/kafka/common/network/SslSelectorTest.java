@@ -16,21 +16,10 @@
  */
 package org.apache.kafka.common.network;
 
-import org.apache.kafka.common.memory.MemoryPool;
-import org.apache.kafka.common.memory.SimpleMemoryPool;
-import org.apache.kafka.common.metrics.Metrics;
-import org.apache.kafka.common.security.auth.SecurityProtocol;
-import org.apache.kafka.common.security.ssl.SslFactory;
-import org.apache.kafka.common.utils.LogContext;
-import org.apache.kafka.common.utils.MockTime;
-import org.apache.kafka.test.TestSslUtils;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
-import java.io.File;
-import java.io.IOException;
-import java.net.InetSocketAddress;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
@@ -39,11 +28,22 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.io.File;
+import java.io.IOException;
+import java.net.InetSocketAddress;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
+import org.apache.kafka.common.memory.MemoryPool;
+import org.apache.kafka.common.memory.SimpleMemoryPool;
+import org.apache.kafka.common.metrics.Metrics;
+import org.apache.kafka.common.config.SslConfigs;
+import org.apache.kafka.common.protocol.SecurityProtocol;
+import org.apache.kafka.common.security.ssl.SslFactory;
+import org.apache.kafka.common.utils.MockTime;
+import org.apache.kafka.test.TestSslUtils;
+import org.junit.After;
+import org.junit.Assert;
+import org.junit.Before;
+import org.junit.Test;
 
 /**
  * A set of tests for the selector. These use a test harness that runs a simple socket server that echos back responses.
@@ -57,6 +57,7 @@ public class SslSelectorTest extends SelectorTest {
         File trustStoreFile = File.createTempFile("truststore", ".jks");
 
         Map<String, Object> sslServerConfigs = TestSslUtils.createSslConfig(false, true, Mode.SERVER, trustStoreFile, "server");
+        sslServerConfigs.put(SslConfigs.PRINCIPAL_BUILDER_CLASS_CONFIG, Class.forName(SslConfigs.DEFAULT_PRINCIPAL_BUILDER_CLASS));
         this.server = new EchoServer(SecurityProtocol.SSL, sslServerConfigs);
         this.server.start();
         this.time = new MockTime();
@@ -64,7 +65,7 @@ public class SslSelectorTest extends SelectorTest {
         this.channelBuilder = new SslChannelBuilder(Mode.CLIENT);
         this.channelBuilder.configure(sslClientConfigs);
         this.metrics = new Metrics();
-        this.selector = new Selector(5000, metrics, time, "MetricGroup", channelBuilder, new LogContext());
+        this.selector = new Selector(5000, metrics, time, "MetricGroup", channelBuilder);
     }
 
     @After
@@ -72,11 +73,6 @@ public class SslSelectorTest extends SelectorTest {
         this.selector.close();
         this.server.close();
         this.metrics.close();
-    }
-
-    @Override
-    public SecurityProtocol securityProtocol() {
-        return SecurityProtocol.PLAINTEXT;
     }
 
     /**
@@ -97,7 +93,7 @@ public class SslSelectorTest extends SelectorTest {
             }
         };
         channelBuilder.configure(sslClientConfigs);
-        Selector selector = new Selector(5000, metrics, time, "MetricGroup2", channelBuilder, new LogContext());
+        Selector selector = new Selector(5000, metrics, time, "MetricGroup2", channelBuilder);
         try {
             int reqs = 500;
             String node = "0";
@@ -178,10 +174,11 @@ public class SslSelectorTest extends SelectorTest {
         //the initial channel builder is for clients, we need a server one
         File trustStoreFile = File.createTempFile("truststore", ".jks");
         Map<String, Object> sslServerConfigs = TestSslUtils.createSslConfig(false, true, Mode.SERVER, trustStoreFile, "server");
+        sslServerConfigs.put(SslConfigs.PRINCIPAL_BUILDER_CLASS_CONFIG, Class.forName(SslConfigs.DEFAULT_PRINCIPAL_BUILDER_CLASS));
         channelBuilder = new SslChannelBuilder(Mode.SERVER);
         channelBuilder.configure(sslServerConfigs);
         selector = new Selector(NetworkReceive.UNLIMITED, 5000, metrics, time, "MetricGroup", 
-                new HashMap<String, String>(), true, false, channelBuilder, pool, new LogContext());
+                new HashMap<String, String>(), true, false, channelBuilder, pool);
 
         try (ServerSocketChannel ss = ServerSocketChannel.open()) {
             ss.bind(new InetSocketAddress(0));
@@ -200,7 +197,7 @@ public class SslSelectorTest extends SelectorTest {
             selector.register("clientX", channelX);
             selector.register("clientY", channelY);
 
-            boolean handshaked = false;
+            boolean success = false;
             NetworkReceive firstReceive = null;
             long deadline = System.currentTimeMillis() + 5000;
             //keep calling poll until:
@@ -221,18 +218,22 @@ public class SslSelectorTest extends SelectorTest {
                     assertTrue("only expecting single request", completed.isEmpty());
                 }
 
-                handshaked = sender1.waitForHandshake(1) && sender2.waitForHandshake(1);
+                boolean handshaked = sender1.waitForHandshake(1);
+                handshaked = handshaked && sender2.waitForHandshake(1);
 
-                if (handshaked && firstReceive != null && selector.isOutOfMemory())
+                if (handshaked && firstReceive != null) {
+                    success = true;
                     break;
+                }
             }
-            assertTrue("could not initiate connections within timeout", handshaked);
+            if (!success) {
+                Assert.fail("could not initiate connections within timeout");
+            }
 
             selector.poll(10);
             assertTrue(selector.completedReceives().isEmpty());
             assertEquals(0, pool.availableMemory());
-            assertNotNull("First receive not complete", firstReceive);
-            assertTrue("Selector not out of memory", selector.isOutOfMemory());
+            assertTrue(selector.isOutOfMemory());
 
             firstReceive.close();
             assertEquals(900, pool.availableMemory()); //memory has been released back to pool

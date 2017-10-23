@@ -18,7 +18,7 @@ package kafka.utils
 
 import org.junit.Assert._
 import org.scalatest.Assertions
-import org.junit.Test
+import org.junit.{Test, After, Before}
 
 class IteratorTemplateTest extends Assertions {
   

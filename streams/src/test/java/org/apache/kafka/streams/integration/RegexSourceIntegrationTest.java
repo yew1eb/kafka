@@ -49,7 +49,6 @@ import org.junit.ClassRule;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -93,7 +92,7 @@ public class RegexSourceIntegrationTest {
 
 
     @BeforeClass
-    public static void startKafkaCluster() throws InterruptedException {
+    public static void startKafkaCluster() throws Exception {
         CLUSTER.createTopics(
             TOPIC_1,
             TOPIC_2,
@@ -120,7 +119,7 @@ public class RegexSourceIntegrationTest {
     }
 
     @After
-    public void tearDown() throws IOException {
+    public void tearDown() throws Exception {
         if (streams != null) {
             streams.close();
         }
@@ -230,7 +229,7 @@ public class RegexSourceIntegrationTest {
 
     @SuppressWarnings("deprecation")
     @Test
-    public void shouldAddStateStoreToRegexDefinedSource() throws InterruptedException {
+    public void shouldAddStateStoreToRegexDefinedSource() throws Exception {
 
         final ProcessorSupplier<String, String> processorSupplier = new MockProcessorSupplier<>();
         final MockStateStoreSupplier stateStoreSupplier = new MockStateStoreSupplier("testStateStore", false);
@@ -280,7 +279,7 @@ public class RegexSourceIntegrationTest {
 
         final KStream<String, String> pattern1Stream = builder.stream(Pattern.compile("topic-\\d"));
         final KStream<String, String> pattern2Stream = builder.stream(Pattern.compile("topic-[A-D]"));
-        final KStream<String, String> namedTopicsStream = builder.stream(Arrays.asList(TOPIC_Y, TOPIC_Z));
+        final KStream<String, String> namedTopicsStream = builder.stream(TOPIC_Y, TOPIC_Z);
 
         pattern1Stream.to(stringSerde, stringSerde, DEFAULT_OUTPUT_TOPIC);
         pattern2Stream.to(stringSerde, stringSerde, DEFAULT_OUTPUT_TOPIC);

@@ -18,13 +18,9 @@ package org.apache.kafka.streams.kstream.internals;
 
 import org.apache.kafka.common.serialization.Serde;
 import org.apache.kafka.common.serialization.Serdes;
-import org.apache.kafka.common.utils.Bytes;
-import org.apache.kafka.streams.Consumed;
 import org.apache.kafka.streams.StreamsBuilder;
 import org.apache.kafka.streams.kstream.KTable;
-import org.apache.kafka.streams.kstream.Materialized;
 import org.apache.kafka.streams.kstream.Predicate;
-import org.apache.kafka.streams.state.KeyValueStore;
 import org.apache.kafka.test.KStreamTestDriver;
 import org.apache.kafka.test.MockProcessorSupplier;
 import org.apache.kafka.test.MockReducer;
@@ -43,7 +39,6 @@ public class KTableFilterTest {
 
     final private Serde<Integer> intSerde = Serdes.Integer();
     final private Serde<String> stringSerde = Serdes.String();
-    private final Consumed<String, Integer> consumed = Consumed.with(stringSerde, intSerde);
     @Rule
     public final KStreamTestDriver driver = new KStreamTestDriver();
     private File stateDir = null;
@@ -81,7 +76,7 @@ public class KTableFilterTest {
 
         final String topic1 = "topic1";
 
-        KTable<String, Integer> table1 = builder.table(topic1, consumed);
+        KTable<String, Integer> table1 = builder.table(stringSerde, intSerde, topic1, "anyStoreName");
 
         KTable<String, Integer> table2 = table1.filter(new Predicate<String, Integer>() {
             @Override
@@ -99,14 +94,13 @@ public class KTableFilterTest {
         doTestKTable(builder, table2, table3, topic1);
     }
 
-    @SuppressWarnings("deprecation")
     @Test
     public void testQueryableKTable() {
         final StreamsBuilder builder = new StreamsBuilder();
 
         final String topic1 = "topic1";
 
-        KTable<String, Integer> table1 = builder.table(topic1, consumed);
+        KTable<String, Integer> table1 = builder.table(stringSerde, intSerde, topic1, "anyStoreName");
 
         KTable<String, Integer> table2 = table1.filter(new Predicate<String, Integer>() {
             @Override
@@ -114,30 +108,6 @@ public class KTableFilterTest {
                 return (value % 2) == 0;
             }
         }, "anyStoreNameFilter");
-        KTable<String, Integer> table3 = table1.filterNot(new Predicate<String, Integer>() {
-            @Override
-            public boolean test(String key, Integer value) {
-                return (value % 2) == 0;
-            }
-        });
-
-        doTestKTable(builder, table2, table3, topic1);
-    }
-
-    @Test
-    public void shouldAddQueryableStore() {
-        final StreamsBuilder builder = new StreamsBuilder();
-
-        final String topic1 = "topic1";
-
-        KTable<String, Integer> table1 = builder.table(topic1, consumed);
-
-        KTable<String, Integer> table2 = table1.filter(new Predicate<String, Integer>() {
-            @Override
-            public boolean test(String key, Integer value) {
-                return (value % 2) == 0;
-            }
-        }, Materialized.<String, Integer, KeyValueStore<Bytes, byte[]>>as("anyStoreNameFilter"));
         KTable<String, Integer> table3 = table1.filterNot(new Predicate<String, Integer>() {
             @Override
             public boolean test(String key, Integer value) {
@@ -215,7 +185,7 @@ public class KTableFilterTest {
         String topic1 = "topic1";
 
         KTableImpl<String, Integer, Integer> table1 =
-                (KTableImpl<String, Integer, Integer>) builder.table(topic1, consumed);
+                (KTableImpl<String, Integer, Integer>) builder.table(stringSerde, intSerde, topic1, "anyStoreName");
         KTableImpl<String, Integer, Integer> table2 = (KTableImpl<String, Integer, Integer>) table1.filter(
                 new Predicate<String, Integer>() {
                     @Override
@@ -241,7 +211,7 @@ public class KTableFilterTest {
         String topic1 = "topic1";
 
         KTableImpl<String, Integer, Integer> table1 =
-            (KTableImpl<String, Integer, Integer>) builder.table(topic1, consumed);
+            (KTableImpl<String, Integer, Integer>) builder.table(stringSerde, intSerde, topic1, "anyStoreName");
         KTableImpl<String, Integer, Integer> table2 = (KTableImpl<String, Integer, Integer>) table1.filter(
             new Predicate<String, Integer>() {
                 @Override
@@ -306,7 +276,7 @@ public class KTableFilterTest {
         String topic1 = "topic1";
 
         KTableImpl<String, Integer, Integer> table1 =
-                (KTableImpl<String, Integer, Integer>) builder.table(topic1, consumed);
+                (KTableImpl<String, Integer, Integer>) builder.table(stringSerde, intSerde, topic1, "anyStoreName");
         KTableImpl<String, Integer, Integer> table2 = (KTableImpl<String, Integer, Integer>) table1.filter(
                 new Predicate<String, Integer>() {
                     @Override
@@ -325,7 +295,7 @@ public class KTableFilterTest {
         String topic1 = "topic1";
 
         KTableImpl<String, Integer, Integer> table1 =
-            (KTableImpl<String, Integer, Integer>) builder.table(topic1, consumed);
+            (KTableImpl<String, Integer, Integer>) builder.table(stringSerde, intSerde, topic1, "anyStoreName");
         KTableImpl<String, Integer, Integer> table2 = (KTableImpl<String, Integer, Integer>) table1.filter(
             new Predicate<String, Integer>() {
                 @Override
@@ -384,7 +354,7 @@ public class KTableFilterTest {
         String topic1 = "topic1";
 
         KTableImpl<String, Integer, Integer> table1 =
-                (KTableImpl<String, Integer, Integer>) builder.table(topic1, consumed);
+                (KTableImpl<String, Integer, Integer>) builder.table(stringSerde, intSerde, topic1, "anyStoreName");
         KTableImpl<String, Integer, Integer> table2 = (KTableImpl<String, Integer, Integer>) table1.filter(
                 new Predicate<String, Integer>() {
                     @Override
@@ -403,7 +373,7 @@ public class KTableFilterTest {
         String topic1 = "topic1";
 
         KTableImpl<String, Integer, Integer> table1 =
-            (KTableImpl<String, Integer, Integer>) builder.table(topic1, consumed);
+            (KTableImpl<String, Integer, Integer>) builder.table(stringSerde, intSerde, topic1, "anyStoreName");
         KTableImpl<String, Integer, Integer> table2 = (KTableImpl<String, Integer, Integer>) table1.filter(
             new Predicate<String, Integer>() {
                 @Override
@@ -442,9 +412,8 @@ public class KTableFilterTest {
 
         String topic1 = "topic1";
 
-        final Consumed<String, String> consumed = Consumed.with(stringSerde, stringSerde);
         KTableImpl<String, String, String> table1 =
-            (KTableImpl<String, String, String>) builder.table(topic1, consumed);
+            (KTableImpl<String, String, String>) builder.table(stringSerde, stringSerde, topic1, "anyStoreName");
         KTableImpl<String, String, String> table2 = (KTableImpl<String, String, String>) table1.filter(
             new Predicate<String, String>() {
                 @Override
@@ -464,9 +433,8 @@ public class KTableFilterTest {
 
         String topic1 = "topic1";
 
-        final Consumed<String, String> consumed = Consumed.with(stringSerde, stringSerde);
         KTableImpl<String, String, String> table1 =
-            (KTableImpl<String, String, String>) builder.table(topic1, consumed);
+            (KTableImpl<String, String, String>) builder.table(stringSerde, stringSerde, topic1, "anyStoreName");
         KTableImpl<String, String, String> table2 = (KTableImpl<String, String, String>) table1.filter(
             new Predicate<String, String>() {
                 @Override
@@ -489,7 +457,7 @@ public class KTableFilterTest {
         };
 
         new StreamsBuilder()
-            .<Integer, String>table("empty")
+            .<Integer, String>table("empty", "emptyStore")
             .filter(numberKeyPredicate)
             .filterNot(numberKeyPredicate)
             .to("nirvana");

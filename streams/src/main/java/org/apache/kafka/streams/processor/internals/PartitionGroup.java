@@ -164,6 +164,7 @@ public class PartitionGroup {
     }
 
     public void close() {
+        queuesByTime.clear();
         partitionQueues.clear();
     }
 

@@ -29,7 +29,6 @@ import java.util.Map;
  * @param <V> The value type
  *
  */
-@Deprecated
 public class InMemoryLRUCacheStoreSupplier<K, V> extends AbstractStoreSupplier<K, V, KeyValueStore> {
 
     private final int capacity;

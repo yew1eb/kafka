@@ -18,7 +18,6 @@ package org.apache.kafka.streams.kstream.internals;
 
 import org.apache.kafka.common.serialization.Serde;
 import org.apache.kafka.common.serialization.Serdes;
-import org.apache.kafka.streams.Consumed;
 import org.apache.kafka.streams.KeyValue;
 import org.apache.kafka.streams.StreamsBuilder;
 import org.apache.kafka.streams.kstream.KStream;
@@ -53,7 +52,7 @@ public class KStreamMapTest {
 
         final int[] expectedKeys = new int[]{0, 1, 2, 3};
 
-        KStream<Integer, String> stream = builder.stream(topicName, Consumed.with(intSerde, stringSerde));
+        KStream<Integer, String> stream = builder.stream(intSerde, stringSerde, topicName);
         MockProcessorSupplier<String, Integer> processor;
 
         processor = new MockProcessorSupplier<>();

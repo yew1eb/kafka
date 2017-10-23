@@ -24,77 +24,51 @@ import javax.management.JMException;
 import javax.management.MBeanServer;
 import javax.management.ObjectName;
 
-import org.apache.kafka.common.MetricName;
-import org.apache.kafka.common.metrics.Gauge;
-import org.apache.kafka.common.metrics.MetricConfig;
-import org.apache.kafka.common.metrics.Metrics;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class AppInfoParser {
     private static final Logger log = LoggerFactory.getLogger(AppInfoParser.class);
-    private static final String VERSION;
-    private static final String COMMIT_ID;
+    private static String version = "unknown";
+    private static String commitId = "unknown";
 
     static {
-        Properties props = new Properties();
         try (InputStream resourceStream = AppInfoParser.class.getResourceAsStream("/kafka/kafka-version.properties")) {
+            Properties props = new Properties();
             props.load(resourceStream);
+            version = props.getProperty("version", version).trim();
+            commitId = props.getProperty("commitId", commitId).trim();
         } catch (Exception e) {
             log.warn("Error while loading kafka-version.properties :" + e.getMessage());
         }
-        VERSION = props.getProperty("version", "unknown").trim();
-        COMMIT_ID = props.getProperty("commitId", "unknown").trim();
     }
 
     public static String getVersion() {
-        return VERSION;
+        return version;
     }
 
     public static String getCommitId() {
-        return COMMIT_ID;
+        return commitId;
     }
 
-    public static synchronized void registerAppInfo(String prefix, String id, Metrics metrics) {
+    public static void registerAppInfo(String prefix, String id) {
         try {
-            ObjectName name = new ObjectName(prefix + ":type=app-info,id=" + Sanitizer.jmxSanitize(id));
+            ObjectName name = new ObjectName(prefix + ":type=app-info,id=" + id);
             AppInfo mBean = new AppInfo();
             ManagementFactory.getPlatformMBeanServer().registerMBean(mBean, name);
-
-            registerMetrics(metrics); // prefix will be added later by JmxReporter
         } catch (JMException e) {
             log.warn("Error registering AppInfo mbean", e);
         }
     }
 
-    public static synchronized void unregisterAppInfo(String prefix, String id, Metrics metrics) {
+    public static void unregisterAppInfo(String prefix, String id) {
         MBeanServer server = ManagementFactory.getPlatformMBeanServer();
         try {
-            ObjectName name = new ObjectName(prefix + ":type=app-info,id=" + Sanitizer.jmxSanitize(id));
+            ObjectName name = new ObjectName(prefix + ":type=app-info,id=" + id);
             if (server.isRegistered(name))
                 server.unregisterMBean(name);
-
-            unregisterMetrics(metrics);
         } catch (JMException e) {
             log.warn("Error unregistering AppInfo mbean", e);
-        }
-    }
-
-    private static MetricName metricName(Metrics metrics, String name) {
-        return metrics.metricName(name, "app-info", "Metric indicating " + name);
-    }
-
-    private static void registerMetrics(Metrics metrics) {
-        if (metrics != null) {
-            metrics.addMetric(metricName(metrics, "version"), new ImmutableValue<>(VERSION));
-            metrics.addMetric(metricName(metrics, "commit-id"), new ImmutableValue<>(COMMIT_ID));
-        }
-    }
-
-    private static void unregisterMetrics(Metrics metrics) {
-        if (metrics != null) {
-            metrics.removeMetric(metricName(metrics, "version"));
-            metrics.removeMetric(metricName(metrics, "commit-id"));
         }
     }
 
@@ -120,18 +94,5 @@ public class AppInfoParser {
             return AppInfoParser.getCommitId();
         }
 
-    }
-
-    static class ImmutableValue<T> implements Gauge<T> {
-        private final T value;
-
-        public ImmutableValue(T value) {
-            this.value = value;
-        }
-
-        @Override
-        public T value(MetricConfig config, long now) {
-            return value;
-        }
     }
 }

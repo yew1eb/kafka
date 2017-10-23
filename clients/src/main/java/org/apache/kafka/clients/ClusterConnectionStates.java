@@ -17,15 +17,12 @@
 package org.apache.kafka.clients;
 
 import java.util.concurrent.ThreadLocalRandom;
-
-import org.apache.kafka.common.errors.AuthenticationException;
-
 import java.util.HashMap;
 import java.util.Map;
 
 /**
  * The state of our connection to each node in the cluster.
- *
+ * 
  */
 final class ClusterConnectionStates {
     private final long reconnectBackoffInitMs;
@@ -53,8 +50,7 @@ final class ClusterConnectionStates {
         if (state == null)
             return true;
         else
-            return state.state.isDisconnected() &&
-                   now - state.lastConnectAttemptMs >= state.reconnectBackoffMs;
+            return state.state == ConnectionState.DISCONNECTED && now - state.lastConnectAttemptMs >= state.reconnectBackoffMs;
     }
 
     /**
@@ -67,8 +63,7 @@ final class ClusterConnectionStates {
         if (state == null)
             return false;
         else
-            return state.state.isDisconnected() &&
-                   now - state.lastConnectAttemptMs < state.reconnectBackoffMs;
+            return state.state == ConnectionState.DISCONNECTED && now - state.lastConnectAttemptMs < state.reconnectBackoffMs;
     }
 
     /**
@@ -82,7 +77,7 @@ final class ClusterConnectionStates {
         NodeConnectionState state = nodeState.get(id);
         if (state == null) return 0;
         long timeWaited = now - state.lastConnectAttemptMs;
-        if (state.state.isDisconnected()) {
+        if (state.state == ConnectionState.DISCONNECTED) {
             return Math.max(state.reconnectBackoffMs - timeWaited, 0);
         } else {
             // When connecting or connected, we should be able to delay indefinitely since other events (connection or
@@ -141,20 +136,6 @@ final class ClusterConnectionStates {
     }
 
     /**
-     * Enter the authentication failed state for the given node.
-     * @param id the connection identifier
-     * @param now the current time
-     * @param exception the authentication exception
-     */
-    public void authenticationFailed(String id, long now, AuthenticationException exception) {
-        NodeConnectionState nodeState = nodeState(id);
-        nodeState.authenticationException = exception;
-        nodeState.state = ConnectionState.AUTHENTICATION_FAILED;
-        nodeState.lastConnectAttemptMs = now;
-        updateReconnectBackoff(nodeState);
-    }
-
-    /**
      * Return true if the connection is ready.
      * @param id the connection identifier
      */
@@ -181,16 +162,7 @@ final class ClusterConnectionStates {
      */
     public boolean isDisconnected(String id) {
         NodeConnectionState state = nodeState.get(id);
-        return state != null && state.state.isDisconnected();
-    }
-
-    /**
-     * Return authentication exception if an authentication error occurred
-     * @param id The id of the node to check
-     */
-    public AuthenticationException authenticationException(String id) {
-        NodeConnectionState state = nodeState.get(id);
-        return state != null ? state.authenticationException : null;
+        return state != null && state.state == ConnectionState.DISCONNECTED;
     }
 
     /**
@@ -199,7 +171,7 @@ final class ClusterConnectionStates {
      *
      * @param nodeState The node state object to update
      */
-    private void resetReconnectBackoff(NodeConnectionState nodeState) {
+    public void resetReconnectBackoff(NodeConnectionState nodeState) {
         nodeState.failedAttempts = 0;
         nodeState.reconnectBackoffMs = this.reconnectBackoffInitMs;
     }
@@ -211,7 +183,7 @@ final class ClusterConnectionStates {
      *
      * @param nodeState The node state object to update
      */
-    private void updateReconnectBackoff(NodeConnectionState nodeState) {
+    public void updateReconnectBackoff(NodeConnectionState nodeState) {
         if (this.reconnectBackoffMaxMs > this.reconnectBackoffInitMs) {
             nodeState.failedAttempts += 1;
             double backoffExp = Math.min(nodeState.failedAttempts - 1, this.reconnectBackoffMaxExp);
@@ -233,7 +205,7 @@ final class ClusterConnectionStates {
     public void remove(String id) {
         nodeState.remove(id);
     }
-
+    
     /**
      * Get the state of a given connection.
      * @param id the id of the connection
@@ -253,21 +225,19 @@ final class ClusterConnectionStates {
             throw new IllegalStateException("No entry found for connection " + id);
         return state;
     }
-
+    
     /**
      * The state of our connection to a node.
      */
     private static class NodeConnectionState {
 
         ConnectionState state;
-        AuthenticationException authenticationException;
         long lastConnectAttemptMs;
         long failedAttempts;
         long reconnectBackoffMs;
 
         public NodeConnectionState(ConnectionState state, long lastConnectAttempt, long reconnectBackoffMs) {
             this.state = state;
-            this.authenticationException = null;
             this.lastConnectAttemptMs = lastConnectAttempt;
             this.failedAttempts = 0;
             this.reconnectBackoffMs = reconnectBackoffMs;

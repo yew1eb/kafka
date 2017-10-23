@@ -18,14 +18,10 @@ package org.apache.kafka.streams.kstream.internals;
 
 import org.apache.kafka.common.serialization.Serde;
 import org.apache.kafka.common.serialization.Serdes;
-import org.apache.kafka.common.utils.Bytes;
-import org.apache.kafka.streams.Consumed;
 import org.apache.kafka.streams.KeyValue;
 import org.apache.kafka.streams.StreamsBuilder;
 import org.apache.kafka.streams.kstream.ForeachAction;
 import org.apache.kafka.streams.kstream.KTable;
-import org.apache.kafka.streams.kstream.Materialized;
-import org.apache.kafka.streams.state.KeyValueStore;
 import org.apache.kafka.test.KStreamTestDriver;
 import org.apache.kafka.test.TestUtils;
 import org.junit.Before;
@@ -83,11 +79,7 @@ public class KTableForeachTest {
 
         // When
         StreamsBuilder builder = new StreamsBuilder();
-        KTable<Integer, String> table = builder.table(topicName,
-                                                      Consumed.with(intSerde, stringSerde),
-                                                      Materialized.<Integer, String, KeyValueStore<Bytes, byte[]>>as(topicName)
-                                                              .withKeySerde(intSerde)
-                                                              .withValueSerde(stringSerde));
+        KTable<Integer, String> table = builder.table(intSerde, stringSerde, topicName, "anyStoreName");
         table.foreach(action);
 
         // Then
@@ -113,7 +105,7 @@ public class KTableForeachTest {
         };
 
         new StreamsBuilder()
-            .<Integer, String>table("emptyTopic")
+            .<Integer, String>table("emptyTopic", "emptyStore")
             .foreach(consume);
     }
 }

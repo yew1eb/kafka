@@ -17,7 +17,7 @@
 
 package kafka.admin
 
-import java.text.{ParseException, SimpleDateFormat}
+import java.text.SimpleDateFormat
 import java.util.{Date, Properties}
 import javax.xml.datatype.DatatypeFactory
 
@@ -25,7 +25,6 @@ import joptsimple.{OptionParser, OptionSpec}
 import kafka.api.{OffsetFetchRequest, OffsetFetchResponse, OffsetRequest, PartitionOffsetRequestInfo}
 import kafka.client.ClientUtils
 import kafka.common.{OffsetMetadataAndError, TopicAndPartition}
-import kafka.utils.Implicits._
 import kafka.consumer.SimpleConsumer
 import kafka.utils._
 import org.I0Itec.zkclient.exception.ZkNoNodeException
@@ -35,9 +34,8 @@ import org.apache.kafka.common.errors.BrokerNotAvailableException
 import org.apache.kafka.common.{KafkaException, Node, TopicPartition}
 import org.apache.kafka.common.internals.Topic
 import org.apache.kafka.common.network.ListenerName
-import org.apache.kafka.common.protocol.Errors
+import org.apache.kafka.common.protocol.{Errors, SecurityProtocol}
 import org.apache.kafka.common.security.JaasUtils
-import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.common.serialization.StringDeserializer
 import org.apache.kafka.common.utils.Utils
 
@@ -89,7 +87,7 @@ object ConsumerGroupCommand extends Logging {
                 case Some("Empty") =>
                   System.err.println(s"Consumer group '$groupId' has no active members.")
                   printAssignment(assignments, true)
-                case Some("PreparingRebalance") | Some("CompletingRebalance") =>
+                case Some("PreparingRebalance") | Some("AwaitingSync") =>
                   System.err.println(s"Warning: Consumer group '$groupId' is rebalancing.")
                   printAssignment(assignments, true)
                 case Some("Stable") =>
@@ -516,8 +514,7 @@ object ConsumerGroupCommand extends Logging {
       properties.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, "30000")
       properties.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, deserializer)
       properties.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, deserializer)
-      if (opts.options.has(opts.commandConfigOpt))
-        properties ++= Utils.loadProps(opts.options.valueOf(opts.commandConfigOpt))
+      if (opts.options.has(opts.commandConfigOpt)) properties.putAll(Utils.loadProps(opts.options.valueOf(opts.commandConfigOpt)))
 
       new KafkaConsumer(properties)
     }
@@ -567,8 +564,8 @@ object ConsumerGroupCommand extends Logging {
       resetPlanCsv.split("\n")
         .map { line =>
           val Array(topic, partition, offset) = line.split(",").map(_.trim)
-          val topicPartition = new TopicPartition(topic, partition.toInt)
-          val offsetAndMetadata = new OffsetAndMetadata(offset.toLong)
+          val topicPartition = new TopicPartition(topic, partition.asInstanceOf[Int])
+          val offsetAndMetadata = new OffsetAndMetadata(offset.asInstanceOf[Long])
           (topicPartition, offsetAndMetadata)
         }.toMap
     }
@@ -668,18 +665,13 @@ object ConsumerGroupCommand extends Logging {
       }
     }
 
-    private[admin] def getDateTime: java.lang.Long = {
+    private def getDateTime: java.lang.Long = {
       val datetime: String = opts.options.valueOf(opts.resetToDatetimeOpt) match {
         case ts if ts.split("T")(1).contains("+") || ts.split("T")(1).contains("-") || ts.split("T")(1).contains("Z") => ts.toString
         case ts => s"${ts}Z"
       }
-      val date = {
-        try {
-          new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSXXX").parse(datetime)
-        } catch {
-          case e: ParseException => new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSX").parse(datetime)
-        }
-      }
+      val format = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSX")
+      val date = format.parse(datetime)
       date.getTime
     }
 

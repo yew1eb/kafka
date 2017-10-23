@@ -34,7 +34,6 @@ import javax.net.ssl.SSLHandshakeException;
 import javax.net.ssl.SSLSession;
 import javax.net.ssl.SSLPeerUnverifiedException;
 
-import org.apache.kafka.common.errors.SslAuthenticationException;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.utils.Utils;
 import org.slf4j.Logger;
@@ -45,14 +44,6 @@ import org.slf4j.LoggerFactory;
  */
 public class SslTransportLayer implements TransportLayer {
     private static final Logger log = LoggerFactory.getLogger(SslTransportLayer.class);
-
-    private enum State {
-        HANDSHAKE,
-        HANDSHAKE_FAILED,
-        READY,
-        CLOSING
-    }
-
     private final String channelId;
     private final SSLEngine sslEngine;
     private final SelectionKey key;
@@ -61,8 +52,8 @@ public class SslTransportLayer implements TransportLayer {
 
     private HandshakeStatus handshakeStatus;
     private SSLEngineResult handshakeResult;
-    private State state;
-    private SslAuthenticationException handshakeException;
+    private boolean handshakeComplete = false;
+    private boolean closing = false;
     private ByteBuffer netReadBuffer;
     private ByteBuffer netWriteBuffer;
     private ByteBuffer appReadBuffer;
@@ -98,7 +89,8 @@ public class SslTransportLayer implements TransportLayer {
         netWriteBuffer.limit(0);
         netReadBuffer.position(0);
         netReadBuffer.limit(0);
-        state = State.HANDSHAKE;
+        handshakeComplete = false;
+        closing = false;
         //initiate handshake
         sslEngine.beginHandshake();
         handshakeStatus = sslEngine.getHandshakeStatus();
@@ -106,7 +98,7 @@ public class SslTransportLayer implements TransportLayer {
 
     @Override
     public boolean ready() {
-        return state == State.READY;
+        return handshakeComplete;
     }
 
     /**
@@ -149,8 +141,8 @@ public class SslTransportLayer implements TransportLayer {
     */
     @Override
     public void close() throws IOException {
-        if (state == State.CLOSING) return;
-        state = State.CLOSING;
+        if (closing) return;
+        closing = true;
         sslEngine.closeOutbound();
         try {
             if (isConnected()) {
@@ -191,22 +183,12 @@ public class SslTransportLayer implements TransportLayer {
     }
 
     /**
-     * Reads available bytes from socket channel to `netReadBuffer`.
-     * Visible for testing.
-     * @return  number of bytes read
-     */
-    protected int readFromSocketChannel() throws IOException {
-        return socketChannel.read(netReadBuffer);
-    }
-
-    /**
-    * Flushes the buffer to the network, non blocking.
-    * Visible for testing.
+    * Flushes the buffer to the network, non blocking
     * @param buf ByteBuffer
     * @return boolean true if the buffer has been emptied out, false otherwise
     * @throws IOException
     */
-    protected boolean flush(ByteBuffer buf) throws IOException {
+    private boolean flush(ByteBuffer buf) throws IOException {
         int remaining = buf.remaining();
         if (remaining > 0) {
             int written = socketChannel.write(buf);
@@ -235,137 +217,101 @@ public class SslTransportLayer implements TransportLayer {
     * | unwrap()    | Finished                         | FINISHED    |
     * +-------------+----------------------------------+-------------+
     *
-    * @throws IOException if read/write fails
-    * @throws SslAuthenticationException if handshake fails with an {@link SSLException}
+    * @throws IOException
     */
     @Override
     public void handshake() throws IOException {
-        // Reset state to support renegotiation. This can be removed if renegotiation support is removed.
-        if (state == State.READY)
-            state = State.HANDSHAKE;
-
-        int read = 0;
-        try {
-            // Read any available bytes before attempting any writes to ensure that handshake failures
-            // reported by the peer are processed even if writes fail (since peer closes connection
-            // if handshake fails)
-            if (key.isReadable())
-                read = readFromSocketChannel();
-
-            doHandshake();
-        } catch (SSLException e) {
-            handshakeFailure(e, true);
-        } catch (IOException e) {
-            maybeThrowSslAuthenticationException();
-
-            // this exception could be due to a write. If there is data available to unwrap,
-            // process the data so that any SSLExceptions are reported
-            if (handshakeStatus == HandshakeStatus.NEED_UNWRAP && netReadBuffer.position() > 0) {
-                try {
-                    handshakeUnwrap(false);
-                } catch (SSLException e1) {
-                    handshakeFailure(e1, false);
-                }
-            }
-            // If we get here, this is not a handshake failure, throw the original IOException
-            throw e;
-        }
-
-        // Read from socket failed, so throw any pending handshake exception or EOF exception.
-        if (read == -1) {
-            maybeThrowSslAuthenticationException();
-            throw new EOFException("EOF during handshake, handshake status is " + handshakeStatus);
-        }
-    }
-
-    private void doHandshake() throws IOException {
         boolean read = key.isReadable();
         boolean write = key.isWritable();
+        handshakeComplete = false;
         handshakeStatus = sslEngine.getHandshakeStatus();
         if (!flush(netWriteBuffer)) {
             key.interestOps(key.interestOps() | SelectionKey.OP_WRITE);
             return;
         }
-        // Throw any pending handshake exception since `netWriteBuffer` has been flushed
-        maybeThrowSslAuthenticationException();
-
-        switch (handshakeStatus) {
-            case NEED_TASK:
-                log.trace("SSLHandshake NEED_TASK channelId {}, appReadBuffer pos {}, netReadBuffer pos {}, netWriteBuffer pos {}",
-                          channelId, appReadBuffer.position(), netReadBuffer.position(), netWriteBuffer.position());
-                handshakeStatus = runDelegatedTasks();
-                break;
-            case NEED_WRAP:
-                log.trace("SSLHandshake NEED_WRAP channelId {}, appReadBuffer pos {}, netReadBuffer pos {}, netWriteBuffer pos {}",
-                          channelId, appReadBuffer.position(), netReadBuffer.position(), netWriteBuffer.position());
-                handshakeResult = handshakeWrap(write);
-                if (handshakeResult.getStatus() == Status.BUFFER_OVERFLOW) {
-                    int currentNetWriteBufferSize = netWriteBufferSize();
-                    netWriteBuffer.compact();
-                    netWriteBuffer = Utils.ensureCapacity(netWriteBuffer, currentNetWriteBufferSize);
-                    netWriteBuffer.flip();
-                    if (netWriteBuffer.limit() >= currentNetWriteBufferSize) {
-                        throw new IllegalStateException("Buffer overflow when available data size (" + netWriteBuffer.limit() +
-                                                        ") >= network buffer size (" + currentNetWriteBufferSize + ")");
-                    }
-                } else if (handshakeResult.getStatus() == Status.BUFFER_UNDERFLOW) {
-                    throw new IllegalStateException("Should not have received BUFFER_UNDERFLOW during handshake WRAP.");
-                } else if (handshakeResult.getStatus() == Status.CLOSED) {
-                    throw new EOFException();
-                }
-                log.trace("SSLHandshake NEED_WRAP channelId {}, handshakeResult {}, appReadBuffer pos {}, netReadBuffer pos {}, netWriteBuffer pos {}",
-                       channelId, handshakeResult, appReadBuffer.position(), netReadBuffer.position(), netWriteBuffer.position());
-                //if handshake status is not NEED_UNWRAP or unable to flush netWriteBuffer contents
-                //we will break here otherwise we can do need_unwrap in the same call.
-                if (handshakeStatus != HandshakeStatus.NEED_UNWRAP || !flush(netWriteBuffer)) {
-                    key.interestOps(key.interestOps() | SelectionKey.OP_WRITE);
+        try {
+            switch (handshakeStatus) {
+                case NEED_TASK:
+                    log.trace("SSLHandshake NEED_TASK channelId {}, appReadBuffer pos {}, netReadBuffer pos {}, netWriteBuffer pos {}",
+                              channelId, appReadBuffer.position(), netReadBuffer.position(), netWriteBuffer.position());
+                    handshakeStatus = runDelegatedTasks();
                     break;
-                }
-            case NEED_UNWRAP:
-                log.trace("SSLHandshake NEED_UNWRAP channelId {}, appReadBuffer pos {}, netReadBuffer pos {}, netWriteBuffer pos {}",
-                          channelId, appReadBuffer.position(), netReadBuffer.position(), netWriteBuffer.position());
-                do {
-                    handshakeResult = handshakeUnwrap(read);
+                case NEED_WRAP:
+                    log.trace("SSLHandshake NEED_WRAP channelId {}, appReadBuffer pos {}, netReadBuffer pos {}, netWriteBuffer pos {}",
+                              channelId, appReadBuffer.position(), netReadBuffer.position(), netWriteBuffer.position());
+                    handshakeResult = handshakeWrap(write);
                     if (handshakeResult.getStatus() == Status.BUFFER_OVERFLOW) {
-                        int currentAppBufferSize = applicationBufferSize();
-                        appReadBuffer = Utils.ensureCapacity(appReadBuffer, currentAppBufferSize);
-                        if (appReadBuffer.position() > currentAppBufferSize) {
-                            throw new IllegalStateException("Buffer underflow when available data size (" + appReadBuffer.position() +
-                                                           ") > packet buffer size (" + currentAppBufferSize + ")");
+                        int currentNetWriteBufferSize = netWriteBufferSize();
+                        netWriteBuffer.compact();
+                        netWriteBuffer = Utils.ensureCapacity(netWriteBuffer, currentNetWriteBufferSize);
+                        netWriteBuffer.flip();
+                        if (netWriteBuffer.limit() >= currentNetWriteBufferSize) {
+                            throw new IllegalStateException("Buffer overflow when available data size (" + netWriteBuffer.limit() +
+                                                            ") >= network buffer size (" + currentNetWriteBufferSize + ")");
                         }
+                    } else if (handshakeResult.getStatus() == Status.BUFFER_UNDERFLOW) {
+                        throw new IllegalStateException("Should not have received BUFFER_UNDERFLOW during handshake WRAP.");
+                    } else if (handshakeResult.getStatus() == Status.CLOSED) {
+                        throw new EOFException();
                     }
-                } while (handshakeResult.getStatus() == Status.BUFFER_OVERFLOW);
-                if (handshakeResult.getStatus() == Status.BUFFER_UNDERFLOW) {
-                    int currentNetReadBufferSize = netReadBufferSize();
-                    netReadBuffer = Utils.ensureCapacity(netReadBuffer, currentNetReadBufferSize);
-                    if (netReadBuffer.position() >= currentNetReadBufferSize) {
-                        throw new IllegalStateException("Buffer underflow when there is available data");
-                    }
-                } else if (handshakeResult.getStatus() == Status.CLOSED) {
-                    throw new EOFException("SSL handshake status CLOSED during handshake UNWRAP");
-                }
-                log.trace("SSLHandshake NEED_UNWRAP channelId {}, handshakeResult {}, appReadBuffer pos {}, netReadBuffer pos {}, netWriteBuffer pos {}",
-                          channelId, handshakeResult, appReadBuffer.position(), netReadBuffer.position(), netWriteBuffer.position());
-
-                //if handshakeStatus completed than fall-through to finished status.
-                //after handshake is finished there is no data left to read/write in socketChannel.
-                //so the selector won't invoke this channel if we don't go through the handshakeFinished here.
-                if (handshakeStatus != HandshakeStatus.FINISHED) {
-                    if (handshakeStatus == HandshakeStatus.NEED_WRAP) {
+                    log.trace("SSLHandshake NEED_WRAP channelId {}, handshakeResult {}, appReadBuffer pos {}, netReadBuffer pos {}, netWriteBuffer pos {}",
+                              channelId, handshakeResult, appReadBuffer.position(), netReadBuffer.position(), netWriteBuffer.position());
+                    //if handshake status is not NEED_UNWRAP or unable to flush netWriteBuffer contents
+                    //we will break here otherwise we can do need_unwrap in the same call.
+                    if (handshakeStatus != HandshakeStatus.NEED_UNWRAP || !flush(netWriteBuffer)) {
                         key.interestOps(key.interestOps() | SelectionKey.OP_WRITE);
-                    } else if (handshakeStatus == HandshakeStatus.NEED_UNWRAP) {
-                        key.interestOps(key.interestOps() & ~SelectionKey.OP_WRITE);
+                        break;
                     }
+                case NEED_UNWRAP:
+                    log.trace("SSLHandshake NEED_UNWRAP channelId {}, appReadBuffer pos {}, netReadBuffer pos {}, netWriteBuffer pos {}",
+                              channelId, appReadBuffer.position(), netReadBuffer.position(), netWriteBuffer.position());
+                    do {
+                        handshakeResult = handshakeUnwrap(read);
+                        if (handshakeResult.getStatus() == Status.BUFFER_OVERFLOW) {
+                            int currentAppBufferSize = applicationBufferSize();
+                            appReadBuffer = Utils.ensureCapacity(appReadBuffer, currentAppBufferSize);
+                            if (appReadBuffer.position() > currentAppBufferSize) {
+                                throw new IllegalStateException("Buffer underflow when available data size (" + appReadBuffer.position() +
+                                                                ") > packet buffer size (" + currentAppBufferSize + ")");
+                            }
+                        }
+                    } while (handshakeResult.getStatus() == Status.BUFFER_OVERFLOW);
+                    if (handshakeResult.getStatus() == Status.BUFFER_UNDERFLOW) {
+                        int currentNetReadBufferSize = netReadBufferSize();
+                        netReadBuffer = Utils.ensureCapacity(netReadBuffer, currentNetReadBufferSize);
+                        if (netReadBuffer.position() >= currentNetReadBufferSize) {
+                            throw new IllegalStateException("Buffer underflow when there is available data");
+                        }
+                    } else if (handshakeResult.getStatus() == Status.CLOSED) {
+                        throw new EOFException("SSL handshake status CLOSED during handshake UNWRAP");
+                    }
+                    log.trace("SSLHandshake NEED_UNWRAP channelId {}, handshakeResult {}, appReadBuffer pos {}, netReadBuffer pos {}, netWriteBuffer pos {}",
+                              channelId, handshakeResult, appReadBuffer.position(), netReadBuffer.position(), netWriteBuffer.position());
+
+                    //if handshakeStatus completed than fall-through to finished status.
+                    //after handshake is finished there is no data left to read/write in socketChannel.
+                    //so the selector won't invoke this channel if we don't go through the handshakeFinished here.
+                    if (handshakeStatus != HandshakeStatus.FINISHED) {
+                        if (handshakeStatus == HandshakeStatus.NEED_WRAP) {
+                            key.interestOps(key.interestOps() | SelectionKey.OP_WRITE);
+                        } else if (handshakeStatus == HandshakeStatus.NEED_UNWRAP) {
+                            key.interestOps(key.interestOps() & ~SelectionKey.OP_WRITE);
+                        }
+                        break;
+                    }
+                case FINISHED:
+                    handshakeFinished();
                     break;
-                }
-            case FINISHED:
-                handshakeFinished();
-                break;
-            case NOT_HANDSHAKING:
-                handshakeFinished();
-                break;
-            default:
-                throw new IllegalStateException(String.format("Unexpected status [%s]", handshakeStatus));
+                case NOT_HANDSHAKING:
+                    handshakeFinished();
+                    break;
+                default:
+                    throw new IllegalStateException(String.format("Unexpected status [%s]", handshakeStatus));
+            }
+
+        } catch (SSLException e) {
+            handshakeFailure();
+            throw e;
         }
     }
 
@@ -400,12 +346,12 @@ public class SslTransportLayer implements TransportLayer {
         // It can move from FINISHED status to NOT_HANDSHAKING after the handshake is completed.
         // Hence we also need to check handshakeResult.getHandshakeStatus() if the handshake finished or not
         if (handshakeResult.getHandshakeStatus() == HandshakeStatus.FINISHED) {
-            //we are complete if we have delivered the last packet
+            //we are complete if we have delivered the last package
+            handshakeComplete = !netWriteBuffer.hasRemaining();
             //remove OP_WRITE if we are complete, otherwise we still have data to write
-            if (netWriteBuffer.hasRemaining())
+            if (!handshakeComplete)
                 key.interestOps(key.interestOps() | SelectionKey.OP_WRITE);
             else {
-                state = State.READY;
                 key.interestOps(key.interestOps() & ~SelectionKey.OP_WRITE);
                 SSLSession session = sslEngine.getSession();
                 log.debug("SSL handshake completed successfully with peerHost '{}' peerPort {} peerPrincipal '{}' cipherSuite '{}'",
@@ -454,9 +400,10 @@ public class SslTransportLayer implements TransportLayer {
     private SSLEngineResult handshakeUnwrap(boolean doRead) throws IOException {
         log.trace("SSLHandshake handshakeUnwrap {}", channelId);
         SSLEngineResult result;
-        int read = 0;
-        if (doRead)
-            read = readFromSocketChannel();
+        if (doRead)  {
+            int read = socketChannel.read(netReadBuffer);
+            if (read == -1) throw new EOFException("EOF during handshake.");
+        }
         boolean cont;
         do {
             //prepare the buffer with the incoming data
@@ -473,11 +420,6 @@ public class SslTransportLayer implements TransportLayer {
             log.trace("SSLHandshake handshakeUnwrap: handshakeStatus {} status {}", handshakeStatus, result.getStatus());
         } while (netReadBuffer.position() != 0 && cont);
 
-        // Throw EOF exception for failed read after processing already received data
-        // so that handshake failures are reported correctly
-        if (read == -1)
-            throw new EOFException("EOF during handshake, handshake status is " + handshakeStatus);
-
         return result;
     }
 
@@ -487,27 +429,27 @@ public class SslTransportLayer implements TransportLayer {
     *
     * @param dst The buffer into which bytes are to be transferred
     * @return The number of bytes read, possible zero or -1 if the channel has reached end-of-stream
-    *         and no more data is available
     * @throws IOException if some other I/O error occurs
     */
     @Override
     public int read(ByteBuffer dst) throws IOException {
-        if (state == State.CLOSING) return -1;
-        else if (state != State.READY) return 0;
+        if (closing) return -1;
+        int read = 0;
+        if (!handshakeComplete) return read;
 
         //if we have unread decrypted data in appReadBuffer read that into dst buffer.
-        int read = 0;
         if (appReadBuffer.position() > 0) {
             read = readFromAppBuffer(dst);
         }
 
-        int netread = 0;
         if (dst.remaining() > 0) {
             netReadBuffer = Utils.ensureCapacity(netReadBuffer, netReadBufferSize());
-            if (netReadBuffer.remaining() > 0)
-                netread = readFromSocketChannel();
-
-            while (netReadBuffer.position() > 0) {
+            if (netReadBuffer.remaining() > 0) {
+                int netread = socketChannel.read(netReadBuffer);
+                if (netread == 0 && netReadBuffer.position() == 0) return read;
+                else if (netread < 0) throw new EOFException("EOF during read");
+            }
+            do {
                 netReadBuffer.flip();
                 SSLEngineResult unwrapResult = sslEngine.unwrap(netReadBuffer, appReadBuffer);
                 netReadBuffer.compact();
@@ -551,12 +493,8 @@ public class SslTransportLayer implements TransportLayer {
                     else
                         break;
                 }
-            }
+            } while (netReadBuffer.position() != 0);
         }
-        // If data has been read and unwrapped, return the data even if end-of-stream, channel will be closed
-        // on a subsequent poll.
-        if (read == 0 && netread < 0)
-            throw new EOFException("EOF during read");
         return read;
     }
 
@@ -615,8 +553,8 @@ public class SslTransportLayer implements TransportLayer {
     @Override
     public int write(ByteBuffer src) throws IOException {
         int written = 0;
-        if (state == State.CLOSING) throw new IllegalStateException("Channel is in closing state");
-        if (state != State.READY) return written;
+        if (closing) throw new IllegalStateException("Channel is in closing state");
+        if (!handshakeComplete) return written;
 
         if (!flush(netWriteBuffer))
             return written;
@@ -724,7 +662,7 @@ public class SslTransportLayer implements TransportLayer {
     public void addInterestOps(int ops) {
         if (!key.isValid())
             throw new CancelledKeyException();
-        else if (state != State.READY)
+        else if (!handshakeComplete)
             throw new IllegalStateException("handshake is not completed");
 
         key.interestOps(key.interestOps() | ops);
@@ -738,7 +676,7 @@ public class SslTransportLayer implements TransportLayer {
     public void removeInterestOps(int ops) {
         if (!key.isValid())
             throw new CancelledKeyException();
-        else if (state != State.READY)
+        else if (!handshakeComplete)
             throw new IllegalStateException("handshake is not completed");
 
         key.interestOps(key.interestOps() & ~ops);
@@ -785,12 +723,7 @@ public class SslTransportLayer implements TransportLayer {
         return netReadBuffer;
     }
 
-    /**
-     * SSL exceptions are propagated as authentication failures so that clients can avoid
-     * retries and report the failure. If `flush` is true, exceptions are propagated after
-     * any pending outgoing bytes are flushed to ensure that the peer is notified of the failure.
-     */
-    private void handshakeFailure(SSLException sslException, boolean flush) throws IOException {
+    private void handshakeFailure() {
         //Release all resources such as internal buffers that SSLEngine is managing
         sslEngine.closeOutbound();
         try {
@@ -798,17 +731,6 @@ public class SslTransportLayer implements TransportLayer {
         } catch (SSLException e) {
             log.debug("SSLEngine.closeInBound() raised an exception.", e);
         }
-
-        state = State.HANDSHAKE_FAILED;
-        handshakeException = new SslAuthenticationException("SSL handshake failed", sslException);
-        if (!flush || flush(netWriteBuffer))
-            throw handshakeException;
-    }
-
-    // If handshake has already failed, throw the authentication exception.
-    private void maybeThrowSslAuthenticationException() {
-        if (handshakeException != null)
-            throw handshakeException;
     }
 
     @Override

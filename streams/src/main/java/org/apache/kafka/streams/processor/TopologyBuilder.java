@@ -50,7 +50,6 @@ import java.util.regex.Pattern;
  *
  * @deprecated use {@link Topology} instead
  */
-@SuppressWarnings("unchecked")
 @Deprecated
 public class TopologyBuilder {
 

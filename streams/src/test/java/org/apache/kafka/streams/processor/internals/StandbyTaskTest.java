@@ -28,12 +28,11 @@ import org.apache.kafka.common.record.TimestampType;
 import org.apache.kafka.common.serialization.IntegerSerializer;
 import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.common.serialization.Serializer;
-import org.apache.kafka.common.utils.LogContext;
 import org.apache.kafka.common.utils.MockTime;
+import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.streams.StreamsConfig;
 import org.apache.kafka.streams.errors.ProcessorStateException;
-import org.apache.kafka.streams.kstream.internals.ConsumedInternal;
 import org.apache.kafka.streams.kstream.internals.InternalStreamsBuilder;
 import org.apache.kafka.streams.kstream.internals.InternalStreamsBuilderTest;
 import org.apache.kafka.streams.processor.StateStore;
@@ -120,7 +119,7 @@ public class StandbyTaskTest {
     private File baseDir;
     private StateDirectory stateDirectory;
 
-    private StreamsConfig createConfig(final File baseDir) throws IOException {
+    private StreamsConfig createConfig(final File baseDir) throws Exception {
         return new StreamsConfig(new Properties() {
             {
                 setProperty(StreamsConfig.APPLICATION_ID_CONFIG, applicationId);
@@ -134,7 +133,7 @@ public class StandbyTaskTest {
 
     private final MockConsumer<byte[], byte[]> consumer = new MockConsumer<>(OffsetResetStrategy.EARLIEST);
     private final MockRestoreConsumer restoreStateConsumer = new MockRestoreConsumer();
-    private final StoreChangelogReader changelogReader = new StoreChangelogReader(restoreStateConsumer, stateRestoreListener, new LogContext("standby-task-test "));
+    private final StoreChangelogReader changelogReader = new StoreChangelogReader(restoreStateConsumer, Time.SYSTEM, 5000, stateRestoreListener);
 
     private final byte[] recordValue = intSerializer.serialize(null, 10);
     private final byte[] recordKey = intSerializer.serialize(null, 1);
@@ -163,17 +162,17 @@ public class StandbyTaskTest {
     }
 
     @Test
-    public void testStorePartitions() throws IOException {
+    public void testStorePartitions() throws Exception {
         StreamsConfig config = createConfig(baseDir);
         StandbyTask task = new StandbyTask(taskId, applicationId, topicPartitions, topology, consumer, changelogReader, config, null, stateDirectory);
-        task.initialize();
+
         assertEquals(Utils.mkSet(partition2), new HashSet<>(task.checkpointedOffsets().keySet()));
 
     }
 
     @SuppressWarnings("unchecked")
-    @Test(expected = ProcessorStateException.class)
-    public void testUpdateNonPersistentStore() throws IOException {
+    @Test(expected = Exception.class)
+    public void testUpdateNonPersistentStore() throws Exception {
         StreamsConfig config = createConfig(baseDir);
         StandbyTask task = new StandbyTask(taskId, applicationId, topicPartitions, topology, consumer, changelogReader, config, null, stateDirectory);
 
@@ -186,10 +185,10 @@ public class StandbyTaskTest {
     }
 
     @Test
-    public void testUpdate() throws IOException {
+    public void testUpdate() throws Exception {
         StreamsConfig config = createConfig(baseDir);
         StandbyTask task = new StandbyTask(taskId, applicationId, topicPartitions, topology, consumer, changelogReader, config, null, stateDirectory);
-        task.initialize();
+
         restoreStateConsumer.assign(new ArrayList<>(task.checkpointedOffsets().keySet()));
 
         for (ConsumerRecord<Integer, Integer> record : Arrays.asList(
@@ -232,7 +231,7 @@ public class StandbyTaskTest {
     }
 
     @Test
-    public void testUpdateKTable() throws IOException {
+    public void testUpdateKTable() throws Exception {
         consumer.assign(Utils.mkList(ktable));
         Map<TopicPartition, OffsetAndMetadata> committedOffsets = new HashMap<>();
         committedOffsets.put(new TopicPartition(ktable.topic(), ktable.partition()), new OffsetAndMetadata(0L));
@@ -246,7 +245,7 @@ public class StandbyTaskTest {
 
         StreamsConfig config = createConfig(baseDir);
         StandbyTask task = new StandbyTask(taskId, applicationId, ktablePartitions, ktableTopology, consumer, changelogReader, config, null, stateDirectory);
-        task.initialize();
+
         restoreStateConsumer.assign(new ArrayList<>(task.checkpointedOffsets().keySet()));
 
         for (ConsumerRecord<Integer, Integer> record : Arrays.asList(
@@ -324,7 +323,7 @@ public class StandbyTaskTest {
     }
 
     @Test
-    public void shouldNotThrowUnsupportedOperationExceptionWhenInitializingStateStores() throws IOException {
+    public void shouldNotThrowUnsupportedOperationExceptionWhenInitializingStateStores() throws Exception {
         final String changelogName = "test-application-my-store-changelog";
         final List<TopicPartition> partitions = Utils.mkList(new TopicPartition(changelogName, 0));
         consumer.assign(partitions);
@@ -335,7 +334,7 @@ public class StandbyTaskTest {
         restoreStateConsumer.updatePartitions(changelogName, Utils.mkList(
                 new PartitionInfo(changelogName, 0, Node.noNode(), new Node[0], new Node[0])));
         final InternalStreamsBuilder builder = new InternalStreamsBuilder(new InternalTopologyBuilder());
-        builder.stream(Collections.singleton("topic"), new ConsumedInternal<>()).groupByKey().count();
+        builder.stream(null, null, null, null, "topic").groupByKey().count("my-store");
 
         final StreamsConfig config = createConfig(baseDir);
         final InternalTopologyBuilder internalTopologyBuilder = InternalStreamsBuilderTest.internalTopologyBuilder(builder);
@@ -346,7 +345,7 @@ public class StandbyTaskTest {
     }
 
     @Test
-    public void shouldCheckpointStoreOffsetsOnCommit() throws IOException {
+    public void shouldCheckpointStoreOffsetsOnCommit() throws Exception {
         consumer.assign(Utils.mkList(ktable));
         final Map<TopicPartition, OffsetAndMetadata> committedOffsets = new HashMap<>();
         committedOffsets.put(new TopicPartition(ktable.topic(), ktable.partition()), new OffsetAndMetadata(100L));
@@ -368,7 +367,6 @@ public class StandbyTaskTest {
                                                  null,
                                                  stateDirectory
         );
-        task.initialize();
 
 
         restoreStateConsumer.assign(new ArrayList<>(task.checkpointedOffsets().keySet()));
@@ -421,9 +419,9 @@ public class StandbyTaskTest {
                 closedStateManager.set(true);
             }
         };
-        task.initialize();
+
         try {
-            task.close(true, false);
+            task.close(true);
             fail("should have thrown exception");
         } catch (Exception e) {
             // expected

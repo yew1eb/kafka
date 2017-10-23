@@ -28,17 +28,14 @@ public class ConnectorStateInfo {
     private final String name;
     private final ConnectorState connector;
     private final List<TaskState> tasks;
-    private final ConnectorType type;
 
     @JsonCreator
     public ConnectorStateInfo(@JsonProperty("name") String name,
                               @JsonProperty("connector") ConnectorState connector,
-                              @JsonProperty("tasks") List<TaskState> tasks,
-                              @JsonProperty("type") ConnectorType type) {
+                              @JsonProperty("tasks") List<TaskState> tasks) {
         this.name = name;
         this.connector = connector;
         this.tasks = tasks;
-        this.type = type;
     }
 
     @JsonProperty
@@ -54,11 +51,6 @@ public class ConnectorStateInfo {
     @JsonProperty
     public List<TaskState> tasks() {
         return tasks;
-    }
-
-    @JsonProperty
-    public ConnectorType type() {
-        return type;
     }
 
     public abstract static class AbstractState {

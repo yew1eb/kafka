@@ -32,7 +32,7 @@ public class ToolsUtils {
     public static void printMetrics(Map<MetricName, ? extends Metric> metrics) {
         if (metrics != null && !metrics.isEmpty()) {
             int maxLengthOfDisplayName = 0;
-            TreeMap<String, Object> sortedMetrics = new TreeMap<>(new Comparator<String>() {
+            TreeMap<String, Double> sortedMetrics = new TreeMap<>(new Comparator<String>() {
                 @Override
                 public int compare(String o1, String o2) {
                     return o1.compareTo(o2);
@@ -42,18 +42,12 @@ public class ToolsUtils {
                 MetricName mName = metric.metricName();
                 String mergedName = mName.group() + ":" + mName.name() + ":" + mName.tags();
                 maxLengthOfDisplayName = maxLengthOfDisplayName < mergedName.length() ? mergedName.length() : maxLengthOfDisplayName;
-                sortedMetrics.put(mergedName, metric.metricValue());
+                sortedMetrics.put(mergedName, metric.value());
             }
-            String doubleOutputFormat = "%-" + maxLengthOfDisplayName + "s : %.3f";
-            String defaultOutputFormat = "%-" + maxLengthOfDisplayName + "s : %s";
+            String outputFormat = "%-" + maxLengthOfDisplayName + "s : %.3f";
             System.out.println(String.format("\n%-" + maxLengthOfDisplayName + "s   %s", "Metric Name", "Value"));
 
-            for (Map.Entry<String, Object> entry : sortedMetrics.entrySet()) {
-                String outputFormat;
-                if (entry.getValue() instanceof Double)
-                    outputFormat = doubleOutputFormat;
-                else
-                    outputFormat = defaultOutputFormat;
+            for (Map.Entry<String, Double> entry : sortedMetrics.entrySet()) {
                 System.out.println(String.format(outputFormat, entry.getKey(), entry.getValue()));
             }
         }

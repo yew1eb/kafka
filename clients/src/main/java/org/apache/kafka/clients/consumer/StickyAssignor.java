@@ -16,17 +16,6 @@
  */
 package org.apache.kafka.clients.consumer;
 
-import org.apache.kafka.clients.consumer.internals.AbstractPartitionAssignor;
-import org.apache.kafka.common.TopicPartition;
-import org.apache.kafka.common.protocol.types.ArrayOf;
-import org.apache.kafka.common.protocol.types.Field;
-import org.apache.kafka.common.protocol.types.Schema;
-import org.apache.kafka.common.protocol.types.Struct;
-import org.apache.kafka.common.protocol.types.Type;
-import org.apache.kafka.common.utils.CollectionUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.io.Serializable;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
@@ -42,34 +31,41 @@ import java.util.Map.Entry;
 import java.util.Set;
 import java.util.TreeSet;
 
+import org.apache.kafka.clients.consumer.internals.AbstractPartitionAssignor;
+import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.protocol.types.ArrayOf;
+import org.apache.kafka.common.protocol.types.Field;
+import org.apache.kafka.common.protocol.types.Schema;
+import org.apache.kafka.common.protocol.types.Struct;
+import org.apache.kafka.common.protocol.types.Type;
+import org.apache.kafka.common.utils.CollectionUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 /**
- * <p>The sticky assignor serves two purposes. First, it guarantees an assignment that is as balanced as possible, meaning either:
- * <ul>
- * <li>the numbers of topic partitions assigned to consumers differ by at most one; or</li>
- * <li>each consumer that has 2+ fewer topic partitions than some other consumer cannot get any of those topic partitions transferred to it.</li>
- * </ul>
+ * The sticky assignor serves two purposes. First, it guarantees an assignment that is as balanced as possible, meaning either:
+ * - the numbers of topic partitions assigned to consumers differ by at most one; or
+ * - each consumer that has 2+ fewer topic partitions than some other consumer cannot get any of those topic partitions transferred to it.
  * Second, it preserved as many existing assignment as possible when a reassignment occurs. This helps in saving some of the
- * overhead processing when topic partitions move from one consumer to another.</p>
+ * overhead processing when topic partitions move from one consumer to another.
  *
- * <p>Starting fresh it would work by distributing the partitions over consumers as evenly as possible. Even though this may sound similar to
+ * Starting fresh it would work by distributing the partitions over consumers as evenly as possible. Even though this may sound similar to
  * how round robin assignor works, the second example below shows that it is not.
  * During a reassignment it would perform the reassignment in such a way that in the new assignment
- * <ol>
- * <li>topic partitions are still distributed as evenly as possible, and</li>
- * <li>topic partitions stay with their previously assigned consumers as much as possible.</li>
- * </ol>
- * Of course, the first goal above takes precedence over the second one.</p>
+ * 1. topic partitions are still distributed as evenly as possible, and
+ * 2. topic partitions stay with their previously assigned consumers as much as possible.
+ * Of course, the first goal above takes precedence over the second one.
  *
- * <p><b>Example 1.</b> Suppose there are three consumers <code>C0</code>, <code>C1</code>, <code>C2</code>,
+ * <b>Example 1.</b> Suppose there are three consumers <code>C0</code>, <code>C1</code>, <code>C2</code>,
  * four topics <code>t0,</code> <code>t1</code>, <code>t2</code>, <code>t3</code>, and each topic has 2 partitions,
  * resulting in partitions <code>t0p0</code>, <code>t0p1</code>, <code>t1p0</code>, <code>t1p1</code>, <code>t2p0</code>,
  * <code>t2p1</code>, <code>t3p0</code>, <code>t3p1</code>. Each consumer is subscribed to all three topics.
  *
  * The assignment with both sticky and round robin assignors will be:
  * <ul>
- * <li><code>C0: [t0p0, t1p1, t3p0]</code></li>
- * <li><code>C1: [t0p1, t2p0, t3p1]</code></li>
- * <li><code>C2: [t1p0, t2p1]</code></li>
+ * <li><code>C0: [t0p0, t1p1, t3p0]<code></li>
+ * <li><code>C1: [t0p1, t2p0, t3p1]<code></li>
+ * <li><code>C2: [t1p0, t2p1]<code></li>
  * </ul>
  *
  * Now, let's assume <code>C1</code> is removed and a reassignment is about to happen. The round robin assignor would produce:
@@ -84,8 +80,8 @@ import java.util.TreeSet;
  * <li><code>C2 [t1p0, t2p1, t0p1, t3p1]</code></li>
  * </ul>
  * preserving all the previous assignments (unlike the round robin assignor).
- *</p>
- * <p><b>Example 2.</b> There are three consumers <code>C0</code>, <code>C1</code>, <code>C2</code>,
+ *
+ * <b>Example 2.</b> There are three consumers <code>C0</code>, <code>C1</code>, <code>C2</code>,
  * and three topics <code>t0</code>, <code>t1</code>, <code>t2</code>, with 1, 2, and 3 partitions respectively.
  * Therefore, the partitions are <code>t0p0</code>, <code>t1p0</code>, <code>t1p1</code>, <code>t2p0</code>,
  * <code>t2p1</code>, <code>t2p2</code>. <code>C0</code> is subscribed to <code>t0</code>; <code>C1</code> is subscribed to
@@ -117,14 +113,13 @@ import java.util.TreeSet;
  * <li><code>C1 [t1p0, t1p1, t0p0]</code></li>
  * <li><code>C2 [t2p0, t2p1, t2p2]</code></li>
  * </ul>
- *</p>
+ *
  * <h3>Impact on <code>ConsumerRebalanceListener</code></h3>
  * The sticky assignment strategy can provide some optimization to those consumers that have some partition cleanup code
  * in their <code>onPartitionsRevoked()</code> callback listeners. The cleanup code is placed in that callback listener
  * because the consumer has no assumption or hope of preserving any of its assigned partitions after a rebalance when it
  * is using range or round robin assignor. The listener code would look like this:
- * <pre>
- * {@code
+ * <code>
  * class TheOldRebalanceListener implements ConsumerRebalanceListener {
  *
  *   void onPartitionsRevoked(Collection<TopicPartition> partitions) {
@@ -141,8 +136,7 @@ import java.util.TreeSet;
  *     }
  *   }
  * }
- * }
- * </pre>
+ * </code>
  *
  * As mentioned above, one advantage of the sticky assignor is that, in general, it reduces the number of partitions that
  * actually move from one consumer to another during a reassignment. Therefore, it allows consumers to do their cleanup
@@ -150,8 +144,7 @@ import java.util.TreeSet;
  * listener, but they can be more efficient and make a note of their partitions before and after the rebalance, and do the
  * cleanup after the rebalance only on the partitions they have lost (which is normally not a lot). The code snippet below
  * clarifies this point:
- * <pre>
- * {@code
+ * <code>
  * class TheNewRebalanceListener implements ConsumerRebalanceListener {
  *   Collection<TopicPartition> lastAssignment = Collections.emptyList();
  *
@@ -173,8 +166,7 @@ import java.util.TreeSet;
  *     this.lastAssignment = assignment;
  *   }
  * }
- * }
- * </pre>
+ * </code>
  *
  * Any consumer that uses sticky assignment can leverage this listener like this:
  * <code>consumer.subscribe(topics, new TheNewRebalanceListener());</code>

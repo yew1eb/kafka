@@ -17,7 +17,6 @@
 package org.apache.kafka.streams.tests;
 
 import org.apache.kafka.common.serialization.Serdes;
-import org.apache.kafka.common.utils.Bytes;
 import org.apache.kafka.streams.KafkaStreams;
 import org.apache.kafka.streams.StreamsBuilder;
 import org.apache.kafka.streams.StreamsConfig;
@@ -25,14 +24,10 @@ import org.apache.kafka.streams.kstream.Aggregator;
 import org.apache.kafka.streams.kstream.Initializer;
 import org.apache.kafka.streams.kstream.KGroupedStream;
 import org.apache.kafka.streams.kstream.KStream;
-import org.apache.kafka.streams.kstream.Materialized;
-import org.apache.kafka.streams.kstream.Produced;
-import org.apache.kafka.streams.state.KeyValueStore;
 
 import java.io.File;
 import java.util.Properties;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 public class EosTestClient extends SmokeTestUtil {
 
@@ -40,7 +35,6 @@ public class EosTestClient extends SmokeTestUtil {
     private final String kafka;
     private final File stateDir;
     private final boolean withRepartitioning;
-    private final AtomicBoolean notRunningCallbackReceived = new AtomicBoolean(false);
 
     private KafkaStreams streams;
     private boolean uncaughtException;
@@ -52,26 +46,18 @@ public class EosTestClient extends SmokeTestUtil {
         this.withRepartitioning = withRepartitioning;
     }
 
-    private volatile boolean isRunning = true;
+    private boolean isRunning = true;
 
     public void start() {
         Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
             @Override
             public void run() {
                 isRunning = false;
-                streams.close(TimeUnit.SECONDS.toMillis(300), TimeUnit.SECONDS);
-
-                // need to wait for callback to avoid race condition
-                // -> make sure the callback printout to stdout is there as it is expected test output
-                waitForStateTransitionCallback();
-
+                streams.close(5, TimeUnit.SECONDS);
                 // do not remove these printouts since they are needed for health scripts
                 if (!uncaughtException) {
-                    System.out.println(System.currentTimeMillis());
                     System.out.println("EOS-TEST-CLIENT-CLOSED");
-                    System.out.flush();
                 }
-
             }
         }));
 
@@ -83,29 +69,15 @@ public class EosTestClient extends SmokeTestUtil {
                 streams.setUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
                     @Override
                     public void uncaughtException(final Thread t, final Throwable e) {
-                        System.out.println(System.currentTimeMillis());
                         System.out.println("EOS-TEST-CLIENT-EXCEPTION");
                         e.printStackTrace();
-                        System.out.flush();
                         uncaughtException = true;
-                    }
-                });
-                streams.setStateListener(new KafkaStreams.StateListener() {
-                    @Override
-                    public void onChange(KafkaStreams.State newState, KafkaStreams.State oldState) {
-                        // don't remove this -- it's required test output
-                        System.out.println(System.currentTimeMillis());
-                        System.out.println("StateChange: " + oldState + " -> " + newState);
-                        System.out.flush();
-                        if (newState == KafkaStreams.State.NOT_RUNNING) {
-                            notRunningCallbackReceived.set(true);
-                        }
                     }
                 });
                 streams.start();
             }
             if (uncaughtException) {
-                streams.close(TimeUnit.SECONDS.toMillis(60), TimeUnit.SECONDS);
+                streams.close(5, TimeUnit.SECONDS);
                 streams = null;
             }
             sleep(1000);
@@ -118,7 +90,7 @@ public class EosTestClient extends SmokeTestUtil {
         props.put(StreamsConfig.APPLICATION_ID_CONFIG, APP_ID);
         props.put(StreamsConfig.STATE_DIR_CONFIG, stateDir.toString());
         props.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG, kafka);
-        props.put(StreamsConfig.NUM_STREAM_THREADS_CONFIG, 1);
+        props.put(StreamsConfig.NUM_STREAM_THREADS_CONFIG, 2);
         props.put(StreamsConfig.NUM_STANDBY_REPLICAS_CONFIG, 2);
         props.put(StreamsConfig.REPLICATION_FACTOR_CONFIG, 3);
         props.put(StreamsConfig.PROCESSING_GUARANTEE_CONFIG, StreamsConfig.EXACTLY_ONCE);
@@ -151,9 +123,9 @@ public class EosTestClient extends SmokeTestUtil {
                         return (value < aggregate) ? value : aggregate;
                     }
                 },
-                Materialized.<String, Integer, KeyValueStore<Bytes, byte[]>>with(null, intSerde))
-            .toStream()
-            .to("min", Produced.with(stringSerde, intSerde));
+                intSerde,
+                "min")
+            .to(stringSerde, intSerde, "min");
 
         // sum
         groupedData.aggregate(
@@ -171,9 +143,9 @@ public class EosTestClient extends SmokeTestUtil {
                     return (long) value + aggregate;
                 }
             },
-            Materialized.<String, Long, KeyValueStore<Bytes, byte[]>>with(null, longSerde))
-            .toStream()
-            .to("sum", Produced.with(stringSerde, longSerde));
+            longSerde,
+            "sum")
+            .to(stringSerde, longSerde, "sum");
 
         if (withRepartitioning) {
             final KStream<String, Integer> repartitionedData = data.through("repartition");
@@ -198,29 +170,16 @@ public class EosTestClient extends SmokeTestUtil {
                             return (value > aggregate) ? value : aggregate;
                         }
                     },
-                    Materialized.<String, Integer, KeyValueStore<Bytes, byte[]>>with(null, intSerde))
-                .toStream()
-                .to("max", Produced.with(stringSerde, intSerde));
+                    intSerde,
+                    "max")
+                .to(stringSerde, intSerde, "max");
 
             // count
-            groupedDataAfterRepartitioning.count()
-                .toStream()
-                .to("cnt", Produced.with(stringSerde, longSerde));
+            groupedDataAfterRepartitioning.count("cnt")
+                .to(stringSerde, longSerde, "cnt");
         }
 
         return new KafkaStreams(builder.build(), props);
     }
 
-    private void waitForStateTransitionCallback() {
-        final long maxWaitTime = System.currentTimeMillis() + TimeUnit.SECONDS.toMillis(300);
-        while (!notRunningCallbackReceived.get() && System.currentTimeMillis() < maxWaitTime) {
-            try {
-                Thread.sleep(500);
-            } catch (final InterruptedException ignoreAndSwallow) { /* just keep waiting */ }
-        }
-        if (!notRunningCallbackReceived.get()) {
-            System.err.println("State transition callback to NOT_RUNNING never received. Timed out after 5 minutes.");
-            System.err.flush();
-        }
-    }
 }

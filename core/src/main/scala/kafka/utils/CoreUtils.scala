@@ -24,13 +24,15 @@ import java.util.concurrent.locks.{Lock, ReadWriteLock}
 import java.lang.management._
 import java.util.{Properties, UUID}
 import javax.management._
+import javax.xml.bind.DatatypeConverter
+
+import org.apache.kafka.common.protocol.SecurityProtocol
 
 import scala.collection._
 import scala.collection.mutable
 import kafka.cluster.EndPoint
 import org.apache.kafka.common.network.ListenerName
-import org.apache.kafka.common.security.auth.SecurityProtocol
-import org.apache.kafka.common.utils.{Base64, KafkaThread, Utils}
+import org.apache.kafka.common.utils.{KafkaThread, Utils}
 
 /**
  * General helper functions!
@@ -44,12 +46,6 @@ import org.apache.kafka.common.utils.{Base64, KafkaThread, Utils}
  * 3. You have tests for it if it is nontrivial in any way
  */
 object CoreUtils extends Logging {
-
-  /**
-   * Return the smallest element in `traversable` if it is not empty. Otherwise return `ifEmpty`.
-   */
-  def min[A, B >: A](traversable: TraversableOnce[A], ifEmpty: A)(implicit cmp: Ordering[B]): A =
-    if (traversable.isEmpty) ifEmpty else traversable.min(cmp)
 
   /**
    * Wrap the given function in a java.lang.Runnable
@@ -283,7 +279,7 @@ object CoreUtils extends Logging {
 
   def generateUuidAsBase64(): String = {
     val uuid = UUID.randomUUID()
-    Base64.urlEncoderNoPadding.encodeToString(getBytesFromUuid(uuid))
+    urlSafeBase64EncodeNoPadding(getBytesFromUuid(uuid))
   }
 
   def getBytesFromUuid(uuid: UUID): Array[Byte] = {
@@ -292,6 +288,14 @@ object CoreUtils extends Logging {
     uuidBytes.putLong(uuid.getMostSignificantBits)
     uuidBytes.putLong(uuid.getLeastSignificantBits)
     uuidBytes.array
+  }
+
+  def urlSafeBase64EncodeNoPadding(data: Array[Byte]): String = {
+    val base64EncodedUUID = DatatypeConverter.printBase64Binary(data)
+    //Convert to URL safe variant by replacing + and / with - and _ respectively.
+    val urlSafeBase64EncodedUUID = base64EncodedUUID.replace("+", "-").replace("/", "_")
+    // Remove the "==" padding at the end.
+    urlSafeBase64EncodedUUID.substring(0, urlSafeBase64EncodedUUID.length - 2)
   }
 
   def propsWith(key: String, value: String): Properties = {

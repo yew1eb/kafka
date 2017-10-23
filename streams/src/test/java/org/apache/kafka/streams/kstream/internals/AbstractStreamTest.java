@@ -17,7 +17,6 @@
 package org.apache.kafka.streams.kstream.internals;
 
 import org.apache.kafka.common.serialization.Serdes;
-import org.apache.kafka.streams.Consumed;
 import org.apache.kafka.streams.StreamsBuilder;
 import org.apache.kafka.streams.kstream.KStream;
 import org.apache.kafka.streams.processor.AbstractProcessor;
@@ -45,7 +44,7 @@ public class AbstractStreamTest {
         final MockProcessorSupplier<Integer, String> processor = new MockProcessorSupplier<>();
         final String topicName = "topic";
 
-        ExtendedKStream<Integer, String> stream = new ExtendedKStream<>(builder.stream(topicName, Consumed.with(Serdes.Integer(), Serdes.String())));
+        ExtendedKStream<Integer, String> stream = new ExtendedKStream<>(builder.stream(Serdes.Integer(), Serdes.String(), topicName));
 
         stream.randomFilter().process(processor);
 
@@ -64,7 +63,7 @@ public class AbstractStreamTest {
         }
 
         KStream<K, V> randomFilter() {
-            String name = builder.newProcessorName("RANDOM-FILTER-");
+            String name = builder.newName("RANDOM-FILTER-");
             builder.internalTopologyBuilder.addProcessor(name, new ExtendedKStreamDummy(), this.name);
             return new KStreamImpl<>(builder, name, sourceNodes, false);
         }

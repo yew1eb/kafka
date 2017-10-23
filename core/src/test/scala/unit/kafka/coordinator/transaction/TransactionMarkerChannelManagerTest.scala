@@ -16,8 +16,6 @@
  */
 package kafka.coordinator.transaction
 
-import java.util.concurrent.locks.ReentrantReadWriteLock
-
 import kafka.server.{DelayedOperationPurgatory, KafkaConfig, MetadataCache}
 import kafka.utils.timer.MockTimer
 import kafka.utils.TestUtils
@@ -30,7 +28,7 @@ import org.junit.Assert._
 import org.junit.Test
 import com.yammer.metrics.Metrics
 import kafka.common.RequestAndCompletionHandler
-import org.apache.kafka.common.protocol.{ApiKeys, Errors}
+import org.apache.kafka.common.protocol.Errors
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable
@@ -88,10 +86,7 @@ class TransactionMarkerChannelManagerTest {
     EasyMock.expect(txnStateManager.getTransactionState(EasyMock.eq(transactionalId2)))
       .andReturn(Right(Some(CoordinatorEpochAndTxnMetadata(coordinatorEpoch, txnMetadata2))))
       .anyTimes()
-    val stateLock = new ReentrantReadWriteLock
-    EasyMock.expect(txnStateManager.stateReadLock)
-      .andReturn(stateLock.readLock)
-      .anyTimes()
+
   }
 
   @Test
@@ -301,8 +296,7 @@ class TransactionMarkerChannelManagerTest {
 
     val response = new WriteTxnMarkersResponse(createPidErrorMap(Errors.NONE))
     for (requestAndHandler <- requestAndHandlers) {
-      requestAndHandler.handler.onComplete(new ClientResponse(new RequestHeader(ApiKeys.PRODUCE, 0, "client", 1),
-        null, null, 0, 0, false, null, response))
+      requestAndHandler.handler.onComplete(new ClientResponse(new RequestHeader(0, 0, "client", 1), null, null, 0, 0, false, null, response))
     }
 
     EasyMock.verify(txnStateManager)
@@ -350,8 +344,7 @@ class TransactionMarkerChannelManagerTest {
 
     val response = new WriteTxnMarkersResponse(createPidErrorMap(Errors.NONE))
     for (requestAndHandler <- requestAndHandlers) {
-      requestAndHandler.handler.onComplete(new ClientResponse(new RequestHeader(ApiKeys.PRODUCE, 0, "client", 1),
-        null, null, 0, 0, false, null, response))
+      requestAndHandler.handler.onComplete(new ClientResponse(new RequestHeader(0, 0, "client", 1), null, null, 0, 0, false, null, response))
     }
 
     EasyMock.verify(txnStateManager)
@@ -405,8 +398,7 @@ class TransactionMarkerChannelManagerTest {
 
     val response = new WriteTxnMarkersResponse(createPidErrorMap(Errors.NONE))
     for (requestAndHandler <- requestAndHandlers) {
-      requestAndHandler.handler.onComplete(new ClientResponse(new RequestHeader(ApiKeys.PRODUCE, 0, "client", 1),
-        null, null, 0, 0, false, null, response))
+      requestAndHandler.handler.onComplete(new ClientResponse(new RequestHeader(0, 0, "client", 1), null, null, 0, 0, false, null, response))
     }
 
     // call this again so that append log will be retried
@@ -430,12 +422,12 @@ class TransactionMarkerChannelManagerTest {
 
   @Test
   def shouldCreateMetricsOnStarting(): Unit = {
-    val metrics = Metrics.defaultRegistry.allMetrics.asScala
+    val metrics = Metrics.defaultRegistry.allMetrics
 
-    assertEquals(1, metrics
+    assertEquals(1, Metrics.defaultRegistry.allMetrics.asScala
       .filterKeys(_.getMBeanName == "kafka.coordinator.transaction:type=TransactionMarkerChannelManager,name=UnknownDestinationQueueSize")
       .size)
-    assertEquals(1, metrics
+    assertEquals(1, Metrics.defaultRegistry.allMetrics.asScala
       .filterKeys(_.getMBeanName == "kafka.coordinator.transaction:type=TransactionMarkerChannelManager,name=LogAppendRetryQueueSize")
       .size)
   }

@@ -40,7 +40,7 @@ public class SegmentedCacheFunctionTest {
     private final SegmentedCacheFunction cacheFunction = new SegmentedCacheFunction(new WindowKeySchema(), SEGMENT_INTERVAL);
 
     @Test
-    public void key() {
+    public void key() throws Exception {
         assertThat(
             cacheFunction.key(THE_CACHE_KEY),
             equalTo(THE_KEY)
@@ -48,7 +48,7 @@ public class SegmentedCacheFunctionTest {
     }
 
     @Test
-    public void cacheKey() {
+    public void cacheKey() throws Exception {
         final long segmentId = TIMESTAMP / SEGMENT_INTERVAL;
 
         final Bytes actualCacheKey = cacheFunction.cacheKey(THE_KEY);
@@ -62,7 +62,7 @@ public class SegmentedCacheFunctionTest {
     }
 
     @Test
-    public void testRoundTripping() {
+    public void testRoundTripping() throws Exception {
         assertThat(
             cacheFunction.key(cacheFunction.cacheKey(THE_KEY)),
             equalTo(THE_KEY)
@@ -75,7 +75,7 @@ public class SegmentedCacheFunctionTest {
     }
 
     @Test
-    public void compareSegmentedKeys() {
+    public void compareSegmentedKeys() throws Exception {
         assertThat(
             "same key in same segment should be ranked the same",
             cacheFunction.compareSegmentedKeys(

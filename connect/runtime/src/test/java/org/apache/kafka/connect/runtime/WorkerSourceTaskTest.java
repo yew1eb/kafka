@@ -23,8 +23,6 @@ import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.record.InvalidRecordException;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.connect.data.Schema;
-import org.apache.kafka.connect.runtime.ConnectMetrics.MetricGroup;
-import org.apache.kafka.connect.runtime.WorkerSourceTask.SourceTaskMetricsGroup;
 import org.apache.kafka.connect.runtime.isolation.Plugins;
 import org.apache.kafka.connect.runtime.standalone.StandaloneConfig;
 import org.apache.kafka.connect.source.SourceRecord;
@@ -40,13 +38,11 @@ import org.easymock.Capture;
 import org.easymock.EasyMock;
 import org.easymock.IAnswer;
 import org.easymock.IExpectationSetters;
-import org.junit.After;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.powermock.api.easymock.PowerMock;
 import org.powermock.api.easymock.annotation.Mock;
 import org.powermock.api.easymock.annotation.MockStrict;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
 import org.powermock.modules.junit4.PowerMockRunner;
 import org.powermock.reflect.Whitebox;
 
@@ -68,7 +64,6 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
-@PowerMockIgnore("javax.management.*")
 @RunWith(PowerMockRunner.class)
 public class WorkerSourceTaskTest extends ThreadedTest {
     private static final String TOPIC = "topic";
@@ -89,7 +84,6 @@ public class WorkerSourceTaskTest extends ThreadedTest {
     private ConnectorTaskId taskId = new ConnectorTaskId("job", 0);
     private WorkerConfig config;
     private Plugins plugins;
-    private MockConnectMetrics metrics;
     @Mock private SourceTask sourceTask;
     @Mock private Converter keyConverter;
     @Mock private Converter valueConverter;
@@ -127,12 +121,6 @@ public class WorkerSourceTaskTest extends ThreadedTest {
         plugins = new Plugins(workerProps);
         config = new StandaloneConfig(workerProps);
         producerCallbacks = EasyMock.newCapture();
-        metrics = new MockConnectMetrics();
-    }
-
-    @After
-    public void tearDown() {
-        if (metrics != null) metrics.stop();
     }
 
     private void createWorkerTask() {
@@ -141,7 +129,7 @@ public class WorkerSourceTaskTest extends ThreadedTest {
 
     private void createWorkerTask(TargetState initialState) {
         workerTask = new WorkerSourceTask(taskId, sourceTask, statusListener, initialState, keyConverter, valueConverter, transformationChain,
-                producer, offsetReader, offsetWriter, config, metrics, plugins.delegatingLoader(), Time.SYSTEM);
+                producer, offsetReader, offsetWriter, config, plugins.delegatingLoader(), Time.SYSTEM);
     }
 
     @Test
@@ -272,7 +260,6 @@ public class WorkerSourceTaskTest extends ThreadedTest {
         assertTrue(workerTask.awaitStop(1000));
 
         taskFuture.get();
-        assertPollMetrics(10);
 
         PowerMock.verifyAll();
     }
@@ -321,7 +308,6 @@ public class WorkerSourceTaskTest extends ThreadedTest {
         assertTrue(workerTask.awaitStop(1000));
 
         taskFuture.get();
-        assertPollMetrics(0);
 
         PowerMock.verifyAll();
     }
@@ -366,7 +352,6 @@ public class WorkerSourceTaskTest extends ThreadedTest {
         assertTrue(workerTask.awaitStop(1000));
 
         taskFuture.get();
-        assertPollMetrics(1);
 
         PowerMock.verifyAll();
     }
@@ -411,11 +396,10 @@ public class WorkerSourceTaskTest extends ThreadedTest {
         assertTrue(workerTask.awaitStop(1000));
 
         taskFuture.get();
-        assertPollMetrics(1);
 
         PowerMock.verifyAll();
     }
-
+    
     @Test
     public void testSendRecordsConvertsData() throws Exception {
         createWorkerTask();
@@ -608,21 +592,6 @@ public class WorkerSourceTaskTest extends ThreadedTest {
         PowerMock.verifyAll();
     }
 
-    @Test
-    public void testMetricsGroup() {
-        SourceTaskMetricsGroup group = new SourceTaskMetricsGroup(taskId, metrics);
-        for (int i = 0; i != 10; ++i) {
-            group.recordPoll(100, 1000 + i * 100);
-            group.recordWrite(10);
-        }
-        assertEquals(1900.0, metrics.currentMetricValueAsDouble(group.metricGroup(), "poll-batch-max-time-ms"), 0.001d);
-        assertEquals(1450.0, metrics.currentMetricValueAsDouble(group.metricGroup(), "poll-batch-avg-time-ms"), 0.001d);
-        assertEquals(33.333, metrics.currentMetricValueAsDouble(group.metricGroup(), "source-record-poll-rate"), 0.001d);
-        assertEquals(1000, metrics.currentMetricValueAsDouble(group.metricGroup(), "source-record-poll-total"), 0.001d);
-        assertEquals(3.3333, metrics.currentMetricValueAsDouble(group.metricGroup(), "source-record-write-rate"), 0.001d);
-        assertEquals(100, metrics.currentMetricValueAsDouble(group.metricGroup(), "source-record-write-total"), 0.001d);
-    }
-
     private CountDownLatch expectPolls(int minimum, final AtomicInteger count) throws InterruptedException {
         final CountDownLatch latch = new CountDownLatch(minimum);
         // Note that we stub these to allow any number of calls because the thread will continue to
@@ -634,7 +603,6 @@ public class WorkerSourceTaskTest extends ThreadedTest {
                     public List<SourceRecord> answer() throws Throwable {
                         count.incrementAndGet();
                         latch.countDown();
-                        Thread.sleep(10);
                         return RECORDS;
                     }
                 });
@@ -677,7 +645,6 @@ public class WorkerSourceTaskTest extends ThreadedTest {
         return expectSendRecord(anyTimes, isRetry, false);
     }
 
-    @SuppressWarnings("unchecked")
     private Capture<ProducerRecord<byte[], byte[]>> expectSendRecord(boolean anyTimes, boolean isRetry, boolean succeed) throws InterruptedException {
         expectConvertKeyValue(anyTimes);
         expectApplyTransformationChain(anyTimes);
@@ -789,43 +756,6 @@ public class WorkerSourceTaskTest extends ThreadedTest {
             futureGetExpect.andThrow(new TimeoutException());
             offsetWriter.cancelFlush();
             PowerMock.expectLastCall();
-        }
-    }
-
-    private void assertPollMetrics(int minimumPollCountExpected) {
-        MetricGroup sourceTaskGroup = workerTask.sourceTaskMetricsGroup().metricGroup();
-        MetricGroup taskGroup = workerTask.taskMetricsGroup().metricGroup();
-        double pollRate = metrics.currentMetricValueAsDouble(sourceTaskGroup, "source-record-poll-rate");
-        double pollTotal = metrics.currentMetricValueAsDouble(sourceTaskGroup, "source-record-poll-total");
-        if (minimumPollCountExpected > 0) {
-            assertEquals(RECORDS.size(), metrics.currentMetricValueAsDouble(taskGroup, "batch-size-max"), 0.000001d);
-            assertEquals(RECORDS.size(), metrics.currentMetricValueAsDouble(taskGroup, "batch-size-avg"), 0.000001d);
-            assertTrue(pollRate > 0.0d);
-        } else {
-            assertTrue(pollRate == 0.0d);
-        }
-        assertTrue(pollTotal >= minimumPollCountExpected);
-
-        double writeRate = metrics.currentMetricValueAsDouble(sourceTaskGroup, "source-record-write-rate");
-        double writeTotal = metrics.currentMetricValueAsDouble(sourceTaskGroup, "source-record-write-total");
-        if (minimumPollCountExpected > 0) {
-            assertTrue(writeRate > 0.0d);
-        } else {
-            assertTrue(writeRate == 0.0d);
-        }
-        assertTrue(writeTotal >= minimumPollCountExpected);
-
-        double pollBatchTimeMax = metrics.currentMetricValueAsDouble(sourceTaskGroup, "poll-batch-max-time-ms");
-        double pollBatchTimeAvg = metrics.currentMetricValueAsDouble(sourceTaskGroup, "poll-batch-avg-time-ms");
-        if (minimumPollCountExpected > 0) {
-            assertTrue(pollBatchTimeMax >= 0.0d);
-        }
-        assertTrue(pollBatchTimeAvg >= 0.0d);
-        double activeCount = metrics.currentMetricValueAsDouble(sourceTaskGroup, "source-record-active-count");
-        double activeCountMax = metrics.currentMetricValueAsDouble(sourceTaskGroup, "source-record-active-count-max");
-        assertEquals(0, activeCount, 0.000001d);
-        if (minimumPollCountExpected > 0) {
-            assertEquals(RECORDS.size(), activeCountMax, 0.000001d);
         }
     }
 

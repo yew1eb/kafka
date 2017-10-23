@@ -24,6 +24,7 @@ import org.apache.kafka.streams.kstream.KTable;
 import org.apache.kafka.streams.processor.Processor;
 import org.apache.kafka.streams.processor.ProcessorSupplier;
 import org.apache.kafka.streams.processor.StateStore;
+import org.apache.kafka.streams.processor.StateStoreSupplier;
 import org.apache.kafka.streams.processor.StreamPartitioner;
 import org.apache.kafka.streams.processor.TimestampExtractor;
 import org.apache.kafka.streams.processor.internals.InternalTopologyBuilder;
@@ -31,7 +32,7 @@ import org.apache.kafka.streams.processor.internals.ProcessorNode;
 import org.apache.kafka.streams.processor.internals.ProcessorTopology;
 import org.apache.kafka.streams.processor.internals.SinkNode;
 import org.apache.kafka.streams.processor.internals.SourceNode;
-import org.apache.kafka.streams.state.StoreBuilder;
+import org.apache.kafka.streams.state.KeyValueStore;
 
 import java.util.regex.Pattern;
 
@@ -53,9 +54,7 @@ public class Topology {
     final InternalTopologyBuilder internalTopologyBuilder = new InternalTopologyBuilder();
 
     /**
-     * Sets the {@code auto.offset.reset} configuration when
-     * {@link #addSource(AutoOffsetReset, String, String...) adding a source processor} or when creating {@link KStream}
-     * or {@link KTable} via {@link StreamsBuilder}.
+     * Enum used to define auto offset reset policy when creating {@link KStream} or {@link KTable}
      */
     public enum AutoOffsetReset {
         EARLIEST, LATEST
@@ -432,7 +431,7 @@ public class Topology {
      * <p>
      * The sink will also use the specified {@link StreamPartitioner} to determine how records are distributed among
      * the named Kafka topic's partitions.
-     * Such control is often useful with topologies that use {@link #addStateStore(StoreBuilder, String...) state
+     * Such control is often useful with topologies that use {@link #addStateStore(StateStoreSupplier, String...) state
      * stores} in its processors.
      * In most other cases, however, a partitioner needs not be specified and Kafka will automatically distribute
      * records among partitions using Kafka's default partitioning logic.
@@ -538,14 +537,14 @@ public class Topology {
     /**
      * Adds a state store.
      *
-     * @param storeBuilder the storeBuilder used to obtain this state store {@link StateStore} instance
+     * @param supplier the supplier used to obtain this state store {@link StateStore} instance
      * @param processorNames the names of the processors that should be able to access the provided store
      * @return itself
      * @throws TopologyException if state store supplier is already added
      */
-    public synchronized Topology addStateStore(final StoreBuilder storeBuilder,
+    public synchronized Topology addStateStore(final StateStoreSupplier supplier,
                                                final String... processorNames) {
-        internalTopologyBuilder.addStateStore(storeBuilder, processorNames);
+        internalTopologyBuilder.addStateStore(supplier, processorNames);
         return this;
     }
 
@@ -562,7 +561,7 @@ public class Topology {
      * This {@link ProcessorNode} should be used to keep the {@link StateStore} up-to-date.
      * The default {@link TimestampExtractor} as specified in the {@link StreamsConfig config} is used.
      *
-     * @param storeBuilder          user defined state store builder
+     * @param storeSupplier         user defined state store supplier
      * @param sourceName            name of the {@link SourceNode} that will be automatically added
      * @param keyDeserializer       the {@link Deserializer} to deserialize keys with
      * @param valueDeserializer     the {@link Deserializer} to deserialize values with
@@ -572,15 +571,14 @@ public class Topology {
      * @return itself
      * @throws TopologyException if the processor of state is already registered
      */
-    @SuppressWarnings("unchecked")
-    public synchronized Topology addGlobalStore(final StoreBuilder storeBuilder,
+    public synchronized Topology addGlobalStore(final StateStoreSupplier<KeyValueStore> storeSupplier,
                                                 final String sourceName,
                                                 final Deserializer keyDeserializer,
                                                 final Deserializer valueDeserializer,
                                                 final String topic,
                                                 final String processorName,
                                                 final ProcessorSupplier stateUpdateSupplier) {
-        internalTopologyBuilder.addGlobalStore(storeBuilder, sourceName, null, keyDeserializer,
+        internalTopologyBuilder.addGlobalStore(storeSupplier, sourceName, null, keyDeserializer,
             valueDeserializer, topic, processorName, stateUpdateSupplier);
         return this;
     }
@@ -597,7 +595,7 @@ public class Topology {
      * records forwarded from the {@link SourceNode}.
      * This {@link ProcessorNode} should be used to keep the {@link StateStore} up-to-date.
      *
-     * @param storeBuilder          user defined key value store builder
+     * @param storeSupplier         user defined state store supplier
      * @param sourceName            name of the {@link SourceNode} that will be automatically added
      * @param timestampExtractor    the stateless timestamp extractor used for this source,
      *                              if not specified the default extractor defined in the configs will be used
@@ -609,8 +607,7 @@ public class Topology {
      * @return itself
      * @throws TopologyException if the processor of state is already registered
      */
-    @SuppressWarnings("unchecked")
-    public synchronized Topology addGlobalStore(final StoreBuilder storeBuilder,
+    public synchronized Topology addGlobalStore(final StateStoreSupplier<KeyValueStore> storeSupplier,
                                                 final String sourceName,
                                                 final TimestampExtractor timestampExtractor,
                                                 final Deserializer keyDeserializer,
@@ -618,7 +615,7 @@ public class Topology {
                                                 final String topic,
                                                 final String processorName,
                                                 final ProcessorSupplier stateUpdateSupplier) {
-        internalTopologyBuilder.addGlobalStore(storeBuilder, sourceName, timestampExtractor, keyDeserializer,
+        internalTopologyBuilder.addGlobalStore(storeSupplier, sourceName, timestampExtractor, keyDeserializer,
             valueDeserializer, topic, processorName, stateUpdateSupplier);
         return this;
     }
@@ -642,7 +639,6 @@ public class Topology {
      *
      * @return a description of the topology.
      */
-
     public synchronized TopologyDescription describe() {
         return internalTopologyBuilder.describe();
     }

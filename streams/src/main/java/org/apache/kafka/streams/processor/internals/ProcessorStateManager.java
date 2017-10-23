@@ -18,15 +18,17 @@ package org.apache.kafka.streams.processor.internals;
 
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.TopicPartition;
-import org.apache.kafka.common.utils.LogContext;
 import org.apache.kafka.streams.KeyValue;
+import org.apache.kafka.streams.errors.LockException;
 import org.apache.kafka.streams.errors.ProcessorStateException;
+import org.apache.kafka.streams.errors.StreamsException;
 import org.apache.kafka.streams.processor.BatchingStateRestoreCallback;
 import org.apache.kafka.streams.processor.StateRestoreCallback;
 import org.apache.kafka.streams.processor.StateStore;
 import org.apache.kafka.streams.processor.TaskId;
 import org.apache.kafka.streams.state.internals.OffsetCheckpoint;
 import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
@@ -40,14 +42,16 @@ import java.util.Map;
 
 public class ProcessorStateManager implements StateManager {
 
-    private static final String STATE_CHANGELOG_TOPIC_SUFFIX = "-changelog";
+    private static final Logger log = LoggerFactory.getLogger(ProcessorStateManager.class);
+
+    public static final String STATE_CHANGELOG_TOPIC_SUFFIX = "-changelog";
     static final String CHECKPOINT_FILE_NAME = ".checkpoint";
 
-    private final Logger log;
     private final File baseDir;
     private final TaskId taskId;
     private final String logPrefix;
     private final boolean isStandby;
+    private final StateDirectory stateDirectory;
     private final ChangelogReader changelogReader;
     private final Map<String, StateStore> stores;
     private final Map<String, StateStore> globalStores;
@@ -56,7 +60,6 @@ public class ProcessorStateManager implements StateManager {
     private final Map<TopicPartition, Long> checkpointedOffsets;
     private final Map<String, StateRestoreCallback> restoreCallbacks; // used for standby tasks, keyed by state topic name
     private final Map<String, String> storeToChangelogTopic;
-    private final List<TopicPartition> changelogPartitions = new ArrayList<>();
 
     // TODO: this map does not work with customized grouper where multiple partitions
     // of the same topic can be assigned to the same topic.
@@ -64,7 +67,8 @@ public class ProcessorStateManager implements StateManager {
     private OffsetCheckpoint checkpoint;
 
     /**
-     * @throws ProcessorStateException if the task directory does not exist and could not be created
+     * @throws LockException if the state directory cannot be locked because another thread holds the lock
+     *                       (this might be recoverable by retrying)
      * @throws IOException if any severe error happens while creating or locking the state directory
      */
     public ProcessorStateManager(final TaskId taskId,
@@ -73,12 +77,11 @@ public class ProcessorStateManager implements StateManager {
                                  final StateDirectory stateDirectory,
                                  final Map<String, String> storeToChangelogTopic,
                                  final ChangelogReader changelogReader,
-                                 final boolean eosEnabled,
-                                 final LogContext logContext) throws IOException {
+                                 final boolean eosEnabled) throws LockException, IOException {
         this.taskId = taskId;
+        this.stateDirectory = stateDirectory;
         this.changelogReader = changelogReader;
-        logPrefix = String.format("task [%s] ", taskId);
-        this.log = logContext.logger(getClass());
+        logPrefix = String.format("task [%s]", taskId);
 
         partitionForTopic = new HashMap<>();
         for (final TopicPartition source : sources) {
@@ -92,7 +95,19 @@ public class ProcessorStateManager implements StateManager {
         restoreCallbacks = isStandby ? new HashMap<String, StateRestoreCallback>() : null;
         this.storeToChangelogTopic = storeToChangelogTopic;
 
-        baseDir = stateDirectory.directoryForTask(taskId);
+        if (!stateDirectory.lock(taskId, 5)) {
+            throw new LockException(String.format("%s Failed to lock the state directory for task %s",
+                logPrefix, taskId));
+        }
+        // get a handle on the parent/base directory of the task directory
+        // note that the parent directory could have been accidentally deleted here,
+        // so catch that exception if that is the case
+        try {
+            baseDir = stateDirectory.directoryForTask(taskId);
+        } catch (final ProcessorStateException e) {
+            throw new LockException(String.format("%s Failed to get the directory for task %s. Exception %s",
+                logPrefix, taskId, e));
+        }
 
         // load the checkpoint information
         checkpoint = new OffsetCheckpoint(new File(baseDir, CHECKPOINT_FILE_NAME));
@@ -104,7 +119,7 @@ public class ProcessorStateManager implements StateManager {
             checkpoint = null;
         }
 
-        log.debug("Created state store manager for task {} with the acquired state dir lock", taskId);
+        log.debug("{} Created state store manager for task {} with the acquired state dir lock", logPrefix, taskId);
     }
 
 
@@ -117,17 +132,26 @@ public class ProcessorStateManager implements StateManager {
         return baseDir;
     }
 
+    /**
+     * @throws IllegalArgumentException if the store name has already been registered or if it is not a valid name
+     * (e.g., when it conflicts with the names of internal topics, like the checkpoint file name)
+     *
+     * // TODO: parameter loggingEnabled can be removed now
+     *
+     * @throws StreamsException if the store's change log does not contain the partition
+     */
     @Override
     public void register(final StateStore store,
+                         final boolean loggingEnabled,
                          final StateRestoreCallback stateRestoreCallback) {
-        log.debug("Registering state store {} to its state manager", store.name());
+        log.debug("{} Registering state store {} to its state manager", logPrefix, store.name());
 
         if (store.name().equals(CHECKPOINT_FILE_NAME)) {
-            throw new IllegalArgumentException(String.format("%sIllegal store name: %s", logPrefix, CHECKPOINT_FILE_NAME));
+            throw new IllegalArgumentException(String.format("%s Illegal store name: %s", logPrefix, CHECKPOINT_FILE_NAME));
         }
 
         if (stores.containsKey(store.name())) {
-            throw new IllegalArgumentException(String.format("%sStore %s has already been registered.", logPrefix, store.name()));
+            throw new IllegalArgumentException(String.format("%s Store %s has already been registered.", logPrefix, store.name()));
         }
 
         // check that the underlying change log topic exist or not
@@ -138,25 +162,24 @@ public class ProcessorStateManager implements StateManager {
         }
 
         final TopicPartition storePartition = new TopicPartition(topic, getPartition(topic));
+        changelogReader.validatePartitionExists(storePartition, store.name());
 
         if (isStandby) {
             if (store.persistent()) {
-                log.trace("Preparing standby replica of persistent state store {} with changelog topic {}", store.name(), topic);
+                log.trace("{} Preparing standby replica of persistent state store {} with changelog topic {}", logPrefix, store.name(), topic);
 
                 restoreCallbacks.put(topic, stateRestoreCallback);
             }
         } else {
-            log.trace("Restoring state store {} from changelog topic {}", store.name(), topic);
+            log.trace("{} Restoring state store {} from changelog topic {}", logPrefix, store.name(), topic);
             final StateRestorer restorer = new StateRestorer(storePartition,
                                                              new CompositeRestoreListener(stateRestoreCallback),
                                                              checkpointedOffsets.get(storePartition),
                                                              offsetLimit(storePartition),
                                                              store.persistent(),
                                                              store.name());
-
             changelogReader.register(restorer);
         }
-        changelogPartitions.add(storePartition);
 
         stores.put(store.name(), store);
     }
@@ -208,7 +231,7 @@ public class ProcessorStateManager implements StateManager {
             try {
                 restoreCallback.restoreAll(restoreRecords);
             } catch (final Exception e) {
-                throw new ProcessorStateException(String.format("%sException caught while trying to restore state from %s", logPrefix, storePartition), e);
+                throw new ProcessorStateException(String.format("%s exception caught while trying to restore state from %s", logPrefix, storePartition), e);
             }
         }
 
@@ -219,7 +242,7 @@ public class ProcessorStateManager implements StateManager {
     }
 
     void putOffsetLimit(final TopicPartition partition, final long limit) {
-        log.trace("Updating store offset limit for partition {} to {}", partition, limit);
+        log.trace("{} Updating store offset limit for partition {} to {}", logPrefix, partition, limit);
         offsetLimits.put(partition, limit);
     }
 
@@ -235,56 +258,59 @@ public class ProcessorStateManager implements StateManager {
 
     @Override
     public void flush() {
-        ProcessorStateException firstException = null;
-        // attempting to flush the stores
         if (!stores.isEmpty()) {
-            log.debug("Flushing all stores registered in the state manager");
+            log.debug("{} Flushing all stores registered in the state manager", logPrefix);
             for (final StateStore store : stores.values()) {
-                log.trace("Flushing store {}", store.name());
                 try {
+                    log.trace("{} Flushing store={}", logPrefix, store.name());
                     store.flush();
                 } catch (final Exception e) {
-                    if (firstException == null) {
-                        firstException = new ProcessorStateException(String.format("%sFailed to flush state store %s", logPrefix, store.name()), e);
-                    }
-                    log.error("Failed to flush state store {}: ", store.name(), e);
+                    throw new ProcessorStateException(String.format("%s Failed to flush state store %s", logPrefix, store.name()), e);
                 }
             }
-        }
-
-        if (firstException != null) {
-            throw firstException;
         }
     }
 
     /**
      * {@link StateStore#close() Close} all stores (even in case of failure).
-     * Log all exception and re-throw the first exception that did occur at the end.
+     * Re-throw the first
      * @throws ProcessorStateException if any error happens when closing the state stores
      */
     @Override
     public void close(final Map<TopicPartition, Long> ackedOffsets) throws ProcessorStateException {
-        ProcessorStateException firstException = null;
-        // attempting to close the stores, just in case they
-        // are not closed by a ProcessorNode yet
-        if (!stores.isEmpty()) {
-            log.debug("Closing its state manager and all the registered state stores");
-            for (final StateStore store : stores.values()) {
-                log.debug("Closing storage engine {}", store.name());
-                try {
-                    store.close();
-                } catch (final Exception e) {
-                    if (firstException == null) {
-                        firstException = new ProcessorStateException(String.format("%sFailed to close state store %s", logPrefix, store.name()), e);
+        RuntimeException firstException = null;
+        try {
+            // attempting to close the stores, just in case they
+            // are not closed by a ProcessorNode yet
+            if (!stores.isEmpty()) {
+                log.debug("{} Closing its state manager and all the registered state stores", logPrefix);
+                for (final Map.Entry<String, StateStore> entry : stores.entrySet()) {
+                    log.debug("{} Closing storage engine {}", logPrefix, entry.getKey());
+                    try {
+                        entry.getValue().close();
+                    } catch (final Exception e) {
+                        if (firstException == null) {
+                            firstException = new ProcessorStateException(String.format("%s Failed to close state store %s", logPrefix, entry.getKey()), e);
+                        }
+                        log.error("{} Failed to close state store {}: ", logPrefix, entry.getKey(), e);
                     }
-                    log.error("Failed to close state store {}: ", store.name(), e);
                 }
-            }
 
-            if (ackedOffsets != null) {
-                checkpoint(ackedOffsets);
-            }
+                if (ackedOffsets != null) {
+                    checkpoint(ackedOffsets);
+                }
 
+            }
+        } finally {
+            // release the state directory directoryLock
+            try {
+                stateDirectory.unlock(taskId);
+            } catch (final IOException e) {
+                if (firstException == null) {
+                    firstException = new ProcessorStateException(String.format("%s Failed to release state dir lock", logPrefix), e);
+                }
+                log.error("{} Failed to release state dir lock: ", logPrefix, e);
+            }
         }
 
         if (firstException != null) {
@@ -295,13 +321,13 @@ public class ProcessorStateManager implements StateManager {
     // write the checkpoint
     @Override
     public void checkpoint(final Map<TopicPartition, Long> ackedOffsets) {
-        log.trace("Writing checkpoint: {}", ackedOffsets);
+        log.trace("{} Writing checkpoint: {}", logPrefix, ackedOffsets);
         checkpointedOffsets.putAll(changelogReader.restoredOffsets());
-        for (final StateStore store : stores.values()) {
-            final String storeName = store.name();
+        for (final Map.Entry<String, StateStore> entry : stores.entrySet()) {
+            final String storeName = entry.getKey();
             // only checkpoint the offset to the offsets file if
             // it is persistent AND changelog enabled
-            if (store.persistent() && storeToChangelogTopic.containsKey(storeName)) {
+            if (entry.getValue().persistent() && storeToChangelogTopic.containsKey(storeName)) {
                 final String changelogTopic = storeToChangelogTopic.get(storeName);
                 final TopicPartition topicPartition = new TopicPartition(changelogTopic, getPartition(storeName));
                 if (ackedOffsets.containsKey(topicPartition)) {
@@ -329,7 +355,7 @@ public class ProcessorStateManager implements StateManager {
     }
 
     void registerGlobalStateStores(final List<StateStore> stateStores) {
-        log.debug("Register global stores {}", stateStores);
+        log.debug("{} Register global stores {}", logPrefix, stateStores);
         for (final StateStore stateStore : stateStores) {
             globalStores.put(stateStore.name(), stateStore);
         }
@@ -346,9 +372,5 @@ public class ProcessorStateManager implements StateManager {
         }
 
         return new WrappedBatchingStateRestoreCallback(callback);
-    }
-
-    Collection<TopicPartition> changelogPartitions() {
-        return changelogPartitions;
     }
 }

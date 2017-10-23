@@ -110,13 +110,7 @@ public class StandaloneHerder extends AbstractHerder {
         if (!configState.contains(connector))
             return null;
         Map<String, String> config = configState.connectorConfig(connector);
-        return new ConnectorInfo(connector, config, configState.tasks(connector),
-            connectorTypeForClass(config.get(ConnectorConfig.CONNECTOR_CLASS_CONFIG)));
-    }
-
-    @Override
-    protected Map<String, String> config(String connName) {
-        return configState.connectorConfig(connName);
+        return new ConnectorInfo(connector, config, configState.tasks(connector));
     }
 
     @Override

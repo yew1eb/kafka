@@ -23,7 +23,6 @@ import kafka.api.TopicMetadata
 import kafka.cluster.BrokerEndPoint
 import kafka.common.UnavailableProducerException
 import kafka.utils.Logging
-import kafka.utils.Implicits._
 
 import scala.collection.mutable.HashMap
 
@@ -36,7 +35,7 @@ object ProducerPool {
     val props = new Properties()
     props.put("host", broker.host)
     props.put("port", broker.port.toString)
-    props ++= config.props.props
+    props.putAll(config.props.props)
     new SyncProducer(new SyncProducerConfig(props))
   }
 }

@@ -16,8 +16,10 @@
  */
 package org.apache.kafka.streams.state.internals;
 
+import org.apache.kafka.common.metrics.Sensor;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.streams.KeyValue;
+import org.apache.kafka.streams.StreamsMetrics;
 import org.apache.kafka.streams.processor.ProcessorContext;
 import org.apache.kafka.streams.processor.StateStore;
 import org.apache.kafka.streams.state.KeyValueIterator;
@@ -34,96 +36,230 @@ import java.util.List;
  */
 public class MeteredKeyValueStore<K, V> extends WrappedStateStore.AbstractStateStore implements KeyValueStore<K, V> {
 
+    private final KeyValueStore<K, V> inner;
+    private final String metricScope;
     protected final Time time;
-    private final InnerMeteredKeyValueStore<K, K, V, V> innerMetered;
+    private Sensor putTime;
+    private Sensor putIfAbsentTime;
+    private Sensor getTime;
+    private Sensor deleteTime;
+    private Sensor putAllTime;
+    private Sensor allTime;
+    private Sensor rangeTime;
+    private Sensor flushTime;
+    private StreamsMetrics metrics;
+    private ProcessorContext context;
+    private StateStore root;
 
     // always wrap the store with the metered store
     public MeteredKeyValueStore(final KeyValueStore<K, V> inner,
                                 final String metricScope,
                                 final Time time) {
         super(inner);
+        this.inner = inner;
+        this.metricScope = metricScope;
         this.time = time != null ? time : Time.SYSTEM;
-        this.innerMetered = new InnerMeteredKeyValueStore<>(inner, metricScope, new InnerMeteredKeyValueStore.TypeConverter<K, K, V, V>() {
-            @Override
-            public K innerKey(final K key) {
-                return key;
-            }
-
-            @Override
-            public V innerValue(final V value) {
-                return value;
-            }
-
-            @Override
-            public List<KeyValue<K, V>> innerEntries(final List<KeyValue<K, V>> from) {
-                return from;
-            }
-
-            @Override
-            public V outerValue(final V value) {
-                return value;
-            }
-
-            @Override
-            public KeyValue<K, V> outerKeyValue(final KeyValue<K, V> from) {
-                return from;
-            }
-
-            @Override
-            public K outerKey(final K key) {
-                return key;
-            }
-        }, time);
     }
 
     @Override
     public void init(ProcessorContext context, StateStore root) {
-        innerMetered.init(context, root);
+        final String tagKey = "task-id";
+        final String tagValue = context.taskId().toString();
+
+        this.context = context;
+        this.root = root;
+
+        this.metrics = context.metrics();
+        this.putTime = this.metrics.addLatencyAndThroughputSensor(metricScope, name(), "put",
+                Sensor.RecordingLevel.DEBUG, tagKey, tagValue);
+        this.putIfAbsentTime = this.metrics.addLatencyAndThroughputSensor(metricScope, name(), "put-if-absent",
+                Sensor.RecordingLevel.DEBUG, tagKey, tagValue);
+        this.getTime = this.metrics.addLatencyAndThroughputSensor(metricScope, name(), "get",
+                Sensor.RecordingLevel.DEBUG, tagKey, tagValue);
+        this.deleteTime = this.metrics.addLatencyAndThroughputSensor(metricScope, name(), "delete",
+                Sensor.RecordingLevel.DEBUG, tagKey, tagValue);
+        this.putAllTime = this.metrics.addLatencyAndThroughputSensor(metricScope, name(), "put-all",
+                Sensor.RecordingLevel.DEBUG, tagKey, tagValue);
+        this.allTime = this.metrics.addLatencyAndThroughputSensor(metricScope, name(), "all",
+                Sensor.RecordingLevel.DEBUG, tagKey, tagValue);
+        this.rangeTime = this.metrics.addLatencyAndThroughputSensor(metricScope, name(), "range",
+                Sensor.RecordingLevel.DEBUG, tagKey, tagValue);
+        this.flushTime = this.metrics.addLatencyAndThroughputSensor(metricScope, name(), "flush",
+                Sensor.RecordingLevel.DEBUG, tagKey, tagValue);
+        final Sensor restoreTime = this.metrics.addLatencyAndThroughputSensor(metricScope, name(), "restore",
+                Sensor.RecordingLevel.DEBUG, tagKey, tagValue);
+
+        // register and possibly restore the state from the logs
+        if (restoreTime.shouldRecord()) {
+            measureLatency(new Action<V>() {
+                @Override
+                public V execute() {
+                    inner.init(MeteredKeyValueStore.this.context, MeteredKeyValueStore.this.root);
+                    return null;
+                }
+            }, restoreTime);
+        } else {
+            inner.init(MeteredKeyValueStore.this.context, MeteredKeyValueStore.this.root);
+        }
+
     }
 
     @Override
     public long approximateNumEntries() {
-        return innerMetered.approximateNumEntries();
+        return inner.approximateNumEntries();
+    }
+
+    interface Action<V> {
+        V execute();
     }
 
     @Override
     public V get(final K key) {
-        return innerMetered.get(key);
+        if (getTime.shouldRecord()) {
+            return measureLatency(new Action<V>() {
+                @Override
+                public V execute() {
+                    return inner.get(key);
+                }
+            }, getTime);
+        } else {
+            return inner.get(key);
+        }
     }
 
     @Override
     public void put(final K key, final V value) {
-        innerMetered.put(key, value);
+        if (putTime.shouldRecord()) {
+            measureLatency(new Action<V>() {
+                @Override
+                public V execute() {
+                    inner.put(key, value);
+                    return null;
+                }
+            }, putTime);
+        } else {
+            inner.put(key, value);
+        }
     }
 
     @Override
     public V putIfAbsent(final K key, final V value) {
-        return innerMetered.putIfAbsent(key, value);
+        if (putIfAbsentTime.shouldRecord()) {
+            return measureLatency(new Action<V>() {
+                @Override
+                public V execute() {
+                    return inner.putIfAbsent(key, value);
+                }
+            }, putIfAbsentTime);
+        } else {
+            return inner.putIfAbsent(key, value);
+        }
+
     }
 
     @Override
     public void putAll(final List<KeyValue<K, V>> entries) {
-        innerMetered.putAll(entries);
+        if (putAllTime.shouldRecord()) {
+            measureLatency(new Action<V>() {
+                @Override
+                public V execute() {
+                    inner.putAll(entries);
+                    return null;
+                }
+            }, putAllTime);
+        } else {
+            inner.putAll(entries);
+        }
     }
 
     @Override
     public V delete(final K key) {
-        return innerMetered.delete(key);
+        if (deleteTime.shouldRecord()) {
+            return measureLatency(new Action<V>() {
+                @Override
+                public V execute() {
+                    return inner.delete(key);
+                }
+            }, deleteTime);
+        } else {
+            return inner.delete(key);
+        }
     }
 
     @Override
     public KeyValueIterator<K, V> range(K from, K to) {
-        return innerMetered.range(from, to);
+        return new MeteredKeyValueIterator<>(this.inner.range(from, to), this.rangeTime);
     }
 
     @Override
     public KeyValueIterator<K, V> all() {
-        return innerMetered.all();
+        return new MeteredKeyValueIterator<>(this.inner.all(), this.allTime);
     }
 
     @Override
     public void flush() {
-        innerMetered.flush();
+        if (flushTime.shouldRecord()) {
+            measureLatency(new Action<V>() {
+                @Override
+                public V execute() {
+                    inner.flush();
+                    return null;
+                }
+            }, flushTime);
+        } else {
+            inner.flush();
+        }
+
     }
 
+    private V measureLatency(final Action<V> action, final Sensor sensor) {
+        final long startNs = time.nanoseconds();
+        try {
+            return action.execute();
+        } finally {
+            metrics.recordLatency(sensor, startNs, time.nanoseconds());
+        }
+    }
+
+    private class MeteredKeyValueIterator<K1, V1> implements KeyValueIterator<K1, V1> {
+
+        private final KeyValueIterator<K1, V1> iter;
+        private final Sensor sensor;
+        private final long startNs;
+
+        MeteredKeyValueIterator(KeyValueIterator<K1, V1> iter, Sensor sensor) {
+            this.iter = iter;
+            this.sensor = sensor;
+            this.startNs = time.nanoseconds();
+        }
+
+        @Override
+        public boolean hasNext() {
+            return iter.hasNext();
+        }
+
+        @Override
+        public KeyValue<K1, V1> next() {
+            return iter.next();
+        }
+
+        @Override
+        public void remove() {
+            iter.remove();
+        }
+
+        @Override
+        public void close() {
+            try {
+                iter.close();
+            } finally {
+                metrics.recordLatency(this.sensor, this.startNs, time.nanoseconds());
+            }
+        }
+
+        @Override
+        public K1 peekNextKey() {
+            return iter.peekNextKey();
+        }
+    }
 }

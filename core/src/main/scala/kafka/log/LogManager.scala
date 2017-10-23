@@ -22,16 +22,15 @@ import java.nio.file.Files
 import java.util.concurrent._
 
 import com.yammer.metrics.core.Gauge
+import kafka.admin.AdminUtils
 import kafka.common.KafkaException
-import kafka.controller.KafkaControllerZkUtils
 import kafka.metrics.KafkaMetricsGroup
 import kafka.server.checkpoints.OffsetCheckpointFile
 import kafka.server.{BrokerState, RecoveringFromUncleanShutdown, _}
 import kafka.utils._
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.utils.Time
-import org.apache.kafka.common.errors.{LogDirNotFoundException, KafkaStorageException}
-
+import org.apache.kafka.common.errors.KafkaStorageException
 import scala.collection.JavaConverters._
 import scala.collection._
 import scala.collection.mutable.ArrayBuffer
@@ -47,8 +46,8 @@ import scala.collection.mutable.ArrayBuffer
  * A background thread handles log retention by periodically truncating excess log segments.
  */
 @threadsafe
-class LogManager(logDirs: Seq[File],
-                 initialOfflineDirs: Seq[File],
+class LogManager(logDirs: Array[File],
+                 initialOfflineDirs: Array[File],
                  val topicConfigs: Map[String, LogConfig], // note that this doesn't get updated after creation
                  val defaultConfig: LogConfig,
                  val cleanerConfig: CleanerConfig,
@@ -63,27 +62,22 @@ class LogManager(logDirs: Seq[File],
                  brokerTopicStats: BrokerTopicStats,
                  logDirFailureChannel: LogDirFailureChannel,
                  time: Time) extends Logging with KafkaMetricsGroup {
-
-  import LogManager._
-
+  val RecoveryPointCheckpointFile = "recovery-point-offset-checkpoint"
+  val LogStartOffsetCheckpointFile = "log-start-offset-checkpoint"
   val LockFile = ".lock"
-  val InitialTaskDelayMs = 30 * 1000
+  val InitialTaskDelayMs = 30*1000
 
   private val logCreationOrDeletionLock = new Object
-  private val currentLogs = new Pool[TopicPartition, Log]()
-  // Future logs are put in the directory with "-future" suffix. Future log is created when user wants to move replica
-  // from one log directory to another log directory on the same broker. The directory of the future log will be renamed
-  // to replace the current log of the partition after the future log catches up with the current log
-  private val futureLogs = new Pool[TopicPartition, Log]()
+  private val logs = new Pool[TopicPartition, Log]()
   private val logsToBeDeleted = new LinkedBlockingQueue[Log]()
 
   private val _liveLogDirs: ConcurrentLinkedQueue[File] = createAndValidateLogDirs(logDirs, initialOfflineDirs)
 
-  def liveLogDirs: Seq[File] = {
-    if (_liveLogDirs.size == logDirs.size)
+  def liveLogDirs: Array[File] = {
+    if (_liveLogDirs.size() == logDirs.size)
       logDirs
     else
-      _liveLogDirs.asScala.toBuffer
+      _liveLogDirs.asScala.toArray
   }
 
   private val dirLocks = lockLogDirs(liveLogDirs)
@@ -92,13 +86,7 @@ class LogManager(logDirs: Seq[File],
   @volatile private var logStartOffsetCheckpoints = liveLogDirs.map(dir =>
     (dir, new OffsetCheckpointFile(new File(dir, LogStartOffsetCheckpointFile), logDirFailureChannel))).toMap
 
-  private val preferredLogDirs = new ConcurrentHashMap[TopicPartition, String]()
-
-  private def offlineLogDirs: Iterable[File] = {
-    val logDirsSet = mutable.Set[File](logDirs: _*)
-    _liveLogDirs.asScala.foreach(logDirsSet -=)
-    logDirsSet
-  }
+  private def offlineLogDirs = logDirs.filterNot(_liveLogDirs.contains)
 
   loadLogs()
 
@@ -106,14 +94,14 @@ class LogManager(logDirs: Seq[File],
   // public, so we can access this from kafka.admin.DeleteTopicTest
   val cleaner: LogCleaner =
     if(cleanerConfig.enableCleaner)
-      new LogCleaner(cleanerConfig, liveLogDirs, currentLogs, logDirFailureChannel, time = time)
+      new LogCleaner(cleanerConfig, liveLogDirs, logs, logDirFailureChannel, time = time)
     else
       null
 
   val offlineLogDirectoryCount = newGauge(
     "OfflineLogDirectoryCount",
     new Gauge[Int] {
-      def value = offlineLogDirs.size
+      def value = offlineLogDirs.length
     }
   )
 
@@ -141,11 +129,8 @@ class LogManager(logDirs: Seq[File],
 
     val liveLogDirs = new ConcurrentLinkedQueue[File]()
 
-    for (dir <- dirs) {
+    for (dir <- dirs if !initialOfflineDirs.contains(dir)) {
       try {
-        if (initialOfflineDirs.contains(dir))
-          throw new IOException(s"Failed to load ${dir.getAbsolutePath} during broker startup")
-
         if (!dir.exists) {
           info("Log directory '" + dir.getAbsolutePath + "' not found, creating it.")
           val created = dir.mkdirs()
@@ -157,7 +142,7 @@ class LogManager(logDirs: Seq[File],
         liveLogDirs.add(dir)
       } catch {
         case e: IOException =>
-          logDirFailureChannel.maybeAddOfflineLogDir(dir.getAbsolutePath, s"Failed to create or validate data directory ${dir.getAbsolutePath}", e)
+          error(s"Failed to create or validate data directory $dir.getAbsolutePath", e)
       }
     }
     if (liveLogDirs.isEmpty) {
@@ -168,7 +153,6 @@ class LogManager(logDirs: Seq[File],
     liveLogDirs
   }
 
-  // dir should be an absolute path
   def handleLogDirFailure(dir: String) {
     info(s"Stopping serving logs in dir $dir")
     logCreationOrDeletionLock synchronized {
@@ -178,35 +162,21 @@ class LogManager(logDirs: Seq[File],
         Exit.halt(1)
       }
 
-      recoveryPointCheckpoints = recoveryPointCheckpoints.filter { case (file, _) => file.getAbsolutePath != dir }
-      logStartOffsetCheckpoints = logStartOffsetCheckpoints.filter { case (file, _) => file.getAbsolutePath != dir }
+      recoveryPointCheckpoints = recoveryPointCheckpoints.filterKeys(file => file.getAbsolutePath != dir)
+      logStartOffsetCheckpoints = logStartOffsetCheckpoints.filterKeys(file => file.getAbsolutePath != dir)
       if (cleaner != null)
         cleaner.handleLogDirFailure(dir)
 
-      val offlineCurrentTopicPartitions = currentLogs.collect {
-        case (tp, log) if log.dir.getParent == dir => tp
-      }
-      offlineCurrentTopicPartitions.foreach { topicPartition => {
-        val removedLog = currentLogs.remove(topicPartition)
+      val offlineTopicPartitions = logs.filter { case (tp, log) => log.dir.getParent == dir}.map { case (tp, log) => tp }
+
+      offlineTopicPartitions.foreach(topicPartition => {
+        val removedLog = logs.remove(topicPartition)
         if (removedLog != null) {
           removedLog.closeHandlers()
           removedLog.removeLogMetrics()
         }
-      }}
-
-      val offlineFutureTopicPartitions = futureLogs.collect {
-        case (tp, log) if log.dir.getParent == dir => tp
-      }
-      offlineFutureTopicPartitions.foreach { topicPartition => {
-        val removedLog = futureLogs.remove(topicPartition)
-        if (removedLog != null) {
-          removedLog.closeHandlers()
-          removedLog.removeLogMetrics()
-        }
-      }}
-
-      info(s"Logs for partitions ${offlineCurrentTopicPartitions.mkString(",")} are offline and " +
-           s"logs for future partitions ${offlineFutureTopicPartitions.mkString(",")} are offline due to failure on log directory $dir")
+      })
+      info(s"Partitions ${offlineTopicPartitions.mkString(",")} are offline due to failure on log directory $dir")
       dirLocks.filter(_.file.getParent == dir).foreach(dir => CoreUtils.swallow(dir.destroy()))
     }
   }
@@ -230,14 +200,14 @@ class LogManager(logDirs: Seq[File],
     }
   }
 
-  private def loadLog(logDir: File, recoveryPoints: Map[TopicPartition, Long], logStartOffsets: Map[TopicPartition, Long]): Unit = {
+  private def loadLogs(logDir: File, recoveryPoints: Map[TopicPartition, Long], logStartOffsets: Map[TopicPartition, Long]): Unit = {
     debug("Loading log '" + logDir.getName + "'")
     val topicPartition = Log.parseTopicPartitionName(logDir)
     val config = topicConfigs.getOrElse(topicPartition.topic, defaultConfig)
     val logRecoveryPoint = recoveryPoints.getOrElse(topicPartition, 0L)
     val logStartOffset = logStartOffsets.getOrElse(topicPartition, 0L)
 
-    val log = Log(
+    val current = Log(
       dir = logDir,
       config = config,
       logStartOffset = logStartOffset,
@@ -250,22 +220,13 @@ class LogManager(logDirs: Seq[File],
       logDirFailureChannel = logDirFailureChannel)
 
     if (logDir.getName.endsWith(Log.DeleteDirSuffix)) {
-      this.logsToBeDeleted.add(log)
+      this.logsToBeDeleted.add(current)
     } else {
-      val previous = {
-        if (log.isFuture)
-          this.futureLogs.put(topicPartition, log)
-        else
-          this.currentLogs.put(topicPartition, log)
-      }
+      val previous = this.logs.put(topicPartition, current)
       if (previous != null) {
-        if (log.isFuture)
-          throw new IllegalStateException("Duplicate log directories found: %s, %s!".format(log.dir.getAbsolutePath, previous.dir.getAbsolutePath))
-        else
-          throw new IllegalStateException(s"Duplicate log directories for $topicPartition are found in both ${log.dir.getAbsolutePath} " +
-            s"and ${previous.dir.getAbsolutePath}. It is likely because log directory failure happened while broker was " +
-            s"replacing current replica with future replica. Recover broker from this failure by manually deleting one of the two directories " +
-            s"for this partition. It is recommended to delete the partition in the log directory that is known to have failed recently.")
+        throw new IllegalArgumentException(
+          "Duplicate log directories found: %s, %s!".format(
+            current.dir.getAbsolutePath, previous.dir.getAbsolutePath))
       }
     }
   }
@@ -277,7 +238,7 @@ class LogManager(logDirs: Seq[File],
     info("Loading logs.")
     val startMs = time.milliseconds
     val threadPools = ArrayBuffer.empty[ExecutorService]
-    val offlineDirs = mutable.Set.empty[(String, IOException)]
+    val offlineDirs = ArrayBuffer.empty[(String, IOException)]
     val jobs = mutable.Map.empty[File, Seq[Future[_]]]
 
     for (dir <- liveLogDirs) {
@@ -288,7 +249,10 @@ class LogManager(logDirs: Seq[File],
         val cleanShutdownFile = new File(dir, Log.CleanShutdownFile)
 
         if (cleanShutdownFile.exists) {
-          debug(s"Found clean shutdown file. Skipping recovery for all logs in data directory: ${dir.getAbsolutePath}")
+          debug(
+            "Found clean shutdown file. " +
+              "Skipping recovery for all logs in data directory: " +
+              dir.getAbsolutePath)
         } else {
           // log recovery itself is being performed by `Log` class during initialization
           brokerState.newState(RecoveringFromUncleanShutdown)
@@ -317,10 +281,10 @@ class LogManager(logDirs: Seq[File],
         } yield {
           CoreUtils.runnable {
             try {
-              loadLog(logDir, recoveryPoints, logStartOffsets)
+              loadLogs(logDir, recoveryPoints, logStartOffsets)
             } catch {
               case e: IOException =>
-                offlineDirs.add((dir.getAbsolutePath, e))
+                offlineDirs.append((dir.getAbsolutePath, e))
                 error("Error while loading log dir " + dir.getAbsolutePath, e)
             }
           }
@@ -328,7 +292,7 @@ class LogManager(logDirs: Seq[File],
         jobs(cleanShutdownFile) = jobsForDir.map(pool.submit)
       } catch {
         case e: IOException =>
-          offlineDirs.add((dir.getAbsolutePath, e))
+          offlineDirs.append((dir.getAbsolutePath, e))
           error("Error while loading log dir " + dir.getAbsolutePath, e)
       }
     }
@@ -340,18 +304,18 @@ class LogManager(logDirs: Seq[File],
           cleanShutdownFile.delete()
         } catch {
           case e: IOException =>
-            offlineDirs.add((cleanShutdownFile.getParent, e))
+            offlineDirs.append((cleanShutdownFile.getParent, e))
             error(s"Error while deleting the clean shutdown file $cleanShutdownFile", e)
         }
       }
-
       offlineDirs.foreach { case (dir, e) =>
         logDirFailureChannel.maybeAddOfflineLogDir(dir, s"Error while deleting the clean shutdown file in dir $dir", e)
       }
     } catch {
-      case e: ExecutionException =>
+      case e: ExecutionException => {
         error("There was an error in one of the threads during logs loading: " + e.getCause)
         throw e.getCause
+      }
     } finally {
       threadPools.foreach(_.shutdown())
     }
@@ -364,7 +328,7 @@ class LogManager(logDirs: Seq[File],
    */
   def startup() {
     /* Schedule the cleanup task to delete old logs */
-    if (scheduler != null) {
+    if(scheduler != null) {
       info("Starting log cleanup with a period of %d ms.".format(retentionCheckMs))
       scheduler.schedule("kafka-log-retention",
                          cleanupLogs _,
@@ -393,7 +357,7 @@ class LogManager(logDirs: Seq[File],
                          period = defaultConfig.fileDeleteDelayMs,
                          TimeUnit.MILLISECONDS)
     }
-    if (cleanerConfig.enableCleaner)
+    if(cleanerConfig.enableCleaner)
       cleaner.startup()
   }
 
@@ -452,9 +416,10 @@ class LogManager(logDirs: Seq[File],
         CoreUtils.swallow(Files.createFile(new File(dir, Log.CleanShutdownFile).toPath))
       }
     } catch {
-      case e: ExecutionException =>
+      case e: ExecutionException => {
         error("There was an error in one of the threads during LogManager shutdown: " + e.getCause)
         throw e.getCause
+      }
     } finally {
       threadPools.foreach(_.shutdown())
       // regardless of whether the close succeeded, we need to unlock the data directories
@@ -468,65 +433,48 @@ class LogManager(logDirs: Seq[File],
    * Truncate the partition logs to the specified offsets and checkpoint the recovery point to this offset
    *
    * @param partitionOffsets Partition logs that need to be truncated
-   * @param isFuture True iff the truncation should be performed on the future log of the specified partitions
    */
-  def truncateTo(partitionOffsets: Map[TopicPartition, Long], isFuture: Boolean) {
-    var truncated = false
+  def truncateTo(partitionOffsets: Map[TopicPartition, Long]) {
     for ((topicPartition, truncateOffset) <- partitionOffsets) {
-      val log = {
-        if (isFuture)
-          futureLogs.get(topicPartition)
-        else
-          currentLogs.get(topicPartition)
-      }
+      val log = logs.get(topicPartition)
       // If the log does not exist, skip it
       if (log != null) {
         //May need to abort and pause the cleaning of the log, and resume after truncation is done.
         val needToStopCleaner = cleaner != null && truncateOffset < log.activeSegment.baseOffset
-        if (needToStopCleaner && !isFuture)
+        if (needToStopCleaner)
           cleaner.abortAndPauseCleaning(topicPartition)
         try {
-          if (log.truncateTo(truncateOffset))
-            truncated = true
-          if (needToStopCleaner && !isFuture)
+          log.truncateTo(truncateOffset)
+          if (needToStopCleaner)
             cleaner.maybeTruncateCheckpoint(log.dir.getParentFile, topicPartition, log.activeSegment.baseOffset)
         } finally {
-          if (needToStopCleaner && !isFuture)
+          if (needToStopCleaner)
             cleaner.resumeCleaning(topicPartition)
         }
       }
     }
-
-    if (truncated)
-      checkpointLogRecoveryOffsets()
+    checkpointLogRecoveryOffsets()
   }
 
   /**
-   * Delete all data in a partition and start the log at the new offset
+   *  Delete all data in a partition and start the log at the new offset
    *
-   * @param topicPartition The partition whose log needs to be truncated
-   * @param newOffset The new offset to start the log with
-   * @param isFuture True iff the truncation should be performed on the future log of the specified partition
+   *  @param newOffset The new offset to start the log with
    */
-  def truncateFullyAndStartAt(topicPartition: TopicPartition, newOffset: Long, isFuture: Boolean) {
-    val log = {
-      if (isFuture)
-        futureLogs.get(topicPartition)
-      else
-        currentLogs.get(topicPartition)
-    }
+  def truncateFullyAndStartAt(topicPartition: TopicPartition, newOffset: Long) {
+    val log = logs.get(topicPartition)
     // If the log does not exist, skip it
     if (log != null) {
         //Abort and pause the cleaning of the log, and resume after truncation is done.
-      if (cleaner != null && !isFuture)
+      if (cleaner != null)
         cleaner.abortAndPauseCleaning(topicPartition)
       log.truncateFullyAndStartAt(newOffset)
-      if (cleaner != null && !isFuture) {
+      if (cleaner != null) {
         cleaner.maybeTruncateCheckpoint(log.dir.getParentFile, topicPartition, log.activeSegment.baseOffset)
         cleaner.resumeCleaning(topicPartition)
       }
-      checkpointLogRecoveryOffsetsInDir(log.dir.getParentFile)
     }
+    checkpointLogRecoveryOffsets()
   }
 
   /**
@@ -549,17 +497,13 @@ class LogManager(logDirs: Seq[File],
    * Make a checkpoint for all logs in provided directory.
    */
   private def checkpointLogRecoveryOffsetsInDir(dir: File): Unit = {
-    for {
-      partitionToLog <- logsByDir.get(dir.getAbsolutePath)
-      checkpoint <- recoveryPointCheckpoints.get(dir)
-    } {
+    val recoveryPoints = this.logsByDir.get(dir.toString)
+    if (recoveryPoints.isDefined) {
       try {
-        checkpoint.write(partitionToLog.mapValues(_.recoveryPoint))
-        allLogs.foreach(_.deleteSnapshotsAfterRecoveryPointCheckpoint())
+        this.recoveryPointCheckpoints.get(dir).foreach(_.write(recoveryPoints.get.mapValues(_.recoveryPoint)))
       } catch {
         case e: IOException =>
-          logDirFailureChannel.maybeAddOfflineLogDir(dir.getAbsolutePath, s"Disk error while writing to recovery point " +
-            s"file in directory $dir", e)
+          logDirFailureChannel.maybeAddOfflineLogDir(dir.getAbsolutePath, s"Disk error while writing to recovery point file in directory $dir", e)
       }
     }
   }
@@ -568,15 +512,12 @@ class LogManager(logDirs: Seq[File],
    * Checkpoint log start offset for all logs in provided directory.
    */
   private def checkpointLogStartOffsetsInDir(dir: File): Unit = {
-    for {
-      partitionToLog <- logsByDir.get(dir.getAbsolutePath)
-      checkpoint <- logStartOffsetCheckpoints.get(dir)
-    } {
+    val logs = this.logsByDir.get(dir.getAbsolutePath)
+    if (logs.isDefined) {
       try {
-        val logStartOffsets = partitionToLog.filter { case (_, log) =>
-          log.logStartOffset > log.logSegments.head.baseOffset
-        }.mapValues(_.logStartOffset)
-        checkpoint.write(logStartOffsets)
+        this.logStartOffsetCheckpoints.get(dir).foreach(_.write(
+          logs.get.filter { case (tp, log) => log.logStartOffset > log.logSegments.head.baseOffset }.mapValues(_.logStartOffset)
+        ))
       } catch {
         case e: IOException =>
           logDirFailureChannel.maybeAddOfflineLogDir(dir.getAbsolutePath, s"Disk error while writing to logStartOffset file in directory $dir", e)
@@ -584,76 +525,29 @@ class LogManager(logDirs: Seq[File],
     }
   }
 
-  // The logDir should be an absolute path
-  def maybeUpdatePreferredLogDir(topicPartition: TopicPartition, logDir: String): Unit = {
-    // Do not cache the preferred log directory if either the current log or the future log for this partition exists in the specified logDir
-    if (!getLog(topicPartition).exists(_.dir.getParent == logDir) &&
-        !getLog(topicPartition, isFuture = true).exists(_.dir.getParent == logDir))
-      preferredLogDirs.put(topicPartition, logDir)
-  }
-
-  def abortAndPauseCleaning(topicPartition: TopicPartition): Unit = {
-    if (cleaner != null)
-      cleaner.abortAndPauseCleaning(topicPartition)
-  }
-
-
   /**
    * Get the log if it exists, otherwise return None
-   *
-   * @param topicPartition the partition of the log
-   * @param isFuture True iff the future log of the specified partition should be returned
    */
-  def getLog(topicPartition: TopicPartition, isFuture: Boolean = false): Option[Log] = {
-    if (isFuture)
-      Option(futureLogs.get(topicPartition))
-    else
-      Option(currentLogs.get(topicPartition))
-  }
+  def getLog(topicPartition: TopicPartition): Option[Log] = Option(logs.get(topicPartition))
 
   /**
    * If the log already exists, just return a copy of the existing log
    * Otherwise if isNew=true or if there is no offline log directory, create a log for the given topic and the given partition
    * Otherwise throw KafkaStorageException
    *
-   * @param topicPartition The partition whose log needs to be returned or created
-   * @param config The configuration of the log that should be applied for log creation
    * @param isNew Whether the replica should have existed on the broker or not
-   * @param isFuture True iff the future log of the specified partition should be returned or created
    * @throws KafkaStorageException if isNew=false, log is not found in the cache and there is offline log directory on the broker
    */
-  def getOrCreateLog(topicPartition: TopicPartition, config: LogConfig, isNew: Boolean = false, isFuture: Boolean = false): Log = {
+  def getOrCreateLog(topicPartition: TopicPartition, config: LogConfig, isNew: Boolean = false): Log = {
     logCreationOrDeletionLock synchronized {
-      getLog(topicPartition, isFuture).getOrElse {
+      getLog(topicPartition).getOrElse {
         // create the log if it has not already been created in another thread
         if (!isNew && offlineLogDirs.nonEmpty)
           throw new KafkaStorageException(s"Can not create log for $topicPartition because log directories ${offlineLogDirs.mkString(",")} are offline")
 
-        val logDir = {
-          val preferredLogDir = preferredLogDirs.get(topicPartition)
-
-          if (isFuture) {
-            if (preferredLogDir == null)
-              throw new IllegalStateException(s"Can not create the future log for $topicPartition without having a preferred log directory")
-            else if (getLog(topicPartition).get.dir.getParent == preferredLogDir)
-              throw new IllegalStateException(s"Can not create the future log for $topicPartition in the current log directory of this partition")
-          }
-
-          if (preferredLogDir != null)
-            preferredLogDir
-          else
-            nextLogDir().getAbsolutePath
-        }
-        if (!isLogDirOnline(logDir))
-          throw new KafkaStorageException(s"Can not create log for $topicPartition because log directory $logDir is offline")
-
+        val dataDir = nextLogDir()
         try {
-          val dir = {
-            if (isFuture)
-              new File(logDir, Log.logFutureDirName(topicPartition))
-            else
-              new File(logDir, Log.logDirName(topicPartition))
-          }
+          val dir = new File(dataDir, topicPartition.topic + "-" + topicPartition.partition)
           Files.createDirectories(dir.toPath)
 
           val log = Log(
@@ -668,24 +562,18 @@ class LogManager(logDirs: Seq[File],
             brokerTopicStats = brokerTopicStats,
             logDirFailureChannel = logDirFailureChannel)
 
-          if (isFuture)
-            futureLogs.put(topicPartition, log)
-          else
-            currentLogs.put(topicPartition, log)
+          logs.put(topicPartition, log)
 
           info("Created log for partition [%s,%d] in %s with properties {%s}."
             .format(topicPartition.topic,
               topicPartition.partition,
-              logDir,
+              dataDir.getAbsolutePath,
               config.originals.asScala.mkString(", ")))
-          // Remove the preferred log dir since it has already been satisfied
-          preferredLogDirs.remove(topicPartition)
-
           log
         } catch {
           case e: IOException =>
-            val msg = s"Error while creating log for $topicPartition in dir ${logDir}"
-            logDirFailureChannel.maybeAddOfflineLogDir(logDir, msg, e)
+            val msg = s"Error while creating log for $topicPartition in dir ${dataDir.getAbsolutePath}"
+            logDirFailureChannel.maybeAddOfflineLogDir(dataDir.getAbsolutePath, msg, e)
             throw new KafkaStorageException(msg, e)
         }
       }
@@ -716,82 +604,49 @@ class LogManager(logDirs: Seq[File],
   }
 
   /**
-    * Mark the partition directory in the source log directory for deletion and
-    * rename the future log of this partition in the destination log directory to be the current log
-    *
-    * @param topicPartition TopicPartition that needs to be swapped
-    */
-  def replaceCurrentWithFutureLog(topicPartition: TopicPartition): Unit = {
-    logCreationOrDeletionLock synchronized {
-      val sourceLog = currentLogs.get(topicPartition)
-      val destLog = futureLogs.get(topicPartition)
-
-      if (sourceLog == null)
-        throw new KafkaStorageException(s"The current replica for $topicPartition is offline")
-      if (destLog == null)
-        throw new KafkaStorageException(s"The future replica for $topicPartition is offline")
-
-      destLog.renameDir(Log.logDirName(topicPartition))
-      // Now that future replica has been successfully renamed to be the current replica
-      // Update the cached map and log cleaner as appropriate.
-      futureLogs.remove(topicPartition)
-      currentLogs.put(topicPartition, destLog)
-      if (cleaner != null) {
-        cleaner.alterCheckpointDir(topicPartition, sourceLog.dir.getParentFile, destLog.dir.getParentFile)
-        cleaner.resumeCleaning(topicPartition)
-      }
-
-      try {
-        sourceLog.renameDir(Log.logDeleteDirName(topicPartition))
-        // Now that replica in source log directory has been successfully renamed for deletion.
-        // Close the log, update checkpoint files, and enqueue this log to be deleted.
-        sourceLog.close()
-        checkpointLogRecoveryOffsetsInDir(sourceLog.dir.getParentFile)
-        checkpointLogStartOffsetsInDir(sourceLog.dir.getParentFile)
-        logsToBeDeleted.add(sourceLog)
-      } catch {
-        case e: KafkaStorageException =>
-          // If sourceLog's log directory is offline, we need close its handlers here.
-          // handleLogDirFailure() will not close handlers of sourceLog because it has been removed from currentLogs map
-          sourceLog.closeHandlers()
-          sourceLog.removeLogMetrics()
-          throw e
-      }
-
-      info(s"The current replica is successfully replaced with the future replica for $topicPartition")
-    }
-  }
-
-  /**
     * Rename the directory of the given topic-partition "logdir" as "logdir.uuid.delete" and
     * add it in the queue for deletion.
-    *
     * @param topicPartition TopicPartition that needs to be deleted
-    * @param isFuture True iff the future log of the specified partition should be deleted
-    * @return the removed log
     */
-  def asyncDelete(topicPartition: TopicPartition, isFuture: Boolean = false): Log = {
+  def asyncDelete(topicPartition: TopicPartition) = {
     val removedLog: Log = logCreationOrDeletionLock synchronized {
-      if (isFuture)
-        futureLogs.remove(topicPartition)
-      else
-        currentLogs.remove(topicPartition)
+      logs.remove(topicPartition)
     }
     if (removedLog != null) {
-      //We need to wait until there is no more cleaning task on the log to be deleted before actually deleting it.
-      if (cleaner != null && !isFuture) {
-        cleaner.abortCleaning(topicPartition)
-        cleaner.updateCheckpoints(removedLog.dir.getParentFile)
+      try {
+        //We need to wait until there is no more cleaning task on the log to be deleted before actually deleting it.
+        if (cleaner != null) {
+          cleaner.abortCleaning(topicPartition)
+          cleaner.updateCheckpoints(removedLog.dir.getParentFile)
+        }
+        val dirName = Log.logDeleteDirName(removedLog.name)
+        removedLog.close()
+        val renamedDir = new File(removedLog.dir.getParent, dirName)
+        val renameSuccessful = removedLog.dir.renameTo(renamedDir)
+        if (renameSuccessful) {
+          checkpointLogStartOffsetsInDir(removedLog.dir.getParentFile)
+          removedLog.dir = renamedDir
+          // change the file pointers for log and index file
+          for (logSegment <- removedLog.logSegments) {
+            logSegment.log.setFile(new File(renamedDir, logSegment.log.file.getName))
+            logSegment.index.file = new File(renamedDir, logSegment.index.file.getName)
+          }
+
+          logsToBeDeleted.add(removedLog)
+          removedLog.removeLogMetrics()
+          info(s"Log for partition ${removedLog.topicPartition} is renamed to ${removedLog.dir.getAbsolutePath} and is scheduled for deletion")
+        } else {
+          throw new IOException("Failed to rename log directory from " + removedLog.dir.getAbsolutePath + " to " + renamedDir.getAbsolutePath)
+        }
+      } catch {
+        case e: IOException =>
+          val msg = s"Error while deleting $topicPartition in dir ${removedLog.dir.getParent}."
+          logDirFailureChannel.maybeAddOfflineLogDir(removedLog.dir.getParent, msg, e)
+          throw new KafkaStorageException(msg, e)
       }
-      removedLog.renameDir(Log.logDeleteDirName(topicPartition))
-      checkpointLogRecoveryOffsetsInDir(removedLog.dir.getParentFile)
-      checkpointLogStartOffsetsInDir(removedLog.dir.getParentFile)
-      logsToBeDeleted.add(removedLog)
-      info(s"Log for partition ${removedLog.topicPartition} is renamed to ${removedLog.dir.getAbsolutePath} and is scheduled for deletion")
     } else if (offlineLogDirs.nonEmpty) {
       throw new KafkaStorageException("Failed to delete log for " + topicPartition + " because it may be in one of the offline directories " + offlineLogDirs.mkString(","))
     }
-    removedLog
   }
 
   /**
@@ -833,28 +688,25 @@ class LogManager(logDirs: Seq[File],
   /**
    * Get all the partition logs
    */
-  def allLogs: Iterable[Log] = currentLogs.values ++ futureLogs.values
+  def allLogs(): Iterable[Log] = logs.values
 
-  def logsByTopic(topic: String): Seq[Log] = {
-    (currentLogs.toList ++ futureLogs.toList).filter { case (topicPartition, log) =>
-      topicPartition.topic() == topic
-    }.map { case (topicPartition, log) => log }
-  }
+  /**
+   * Get a map of TopicPartition => Log
+   */
+  def logsByTopicPartition: Map[TopicPartition, Log] = logs.toMap
 
   /**
    * Map of log dir to logs by topic and partitions in that dir
    */
-  private def logsByDir: Map[String, Map[TopicPartition, Log]] = {
-    (this.currentLogs.toList ++ this.futureLogs.toList).groupBy {
+  private def logsByDir = {
+    this.logsByTopicPartition.groupBy {
       case (_, log) => log.dir.getParent
-    }.mapValues(_.toMap)
+    }
   }
 
-  // logDir should be an absolute path
   def isLogDirOnline(logDir: String): Boolean = {
-    // The logDir should be an absolute path
     if (!logDirs.exists(_.getAbsolutePath == logDir))
-      throw new LogDirNotFoundException(s"Log dir $logDir is not found in the config.")
+      throw new RuntimeException(s"Log dir $logDir is not found in the config.")
 
     _liveLogDirs.contains(new File(logDir))
   }
@@ -862,10 +714,10 @@ class LogManager(logDirs: Seq[File],
   /**
    * Flush any log which has exceeded its flush interval and has unwritten messages.
    */
-  private def flushDirtyLogs(): Unit = {
+  private def flushDirtyLogs() = {
     debug("Checking for dirty logs to flush...")
 
-    for ((topicPartition, log) <- currentLogs.toList ++ futureLogs.toList) {
+    for ((topicPartition, log) <- logs) {
       try {
         val timeSinceLastFlush = time.milliseconds - log.lastFlushTime
         debug("Checking if flush is needed on " + topicPartition.topic + " flush interval  " + log.config.flushMs +
@@ -882,13 +734,11 @@ class LogManager(logDirs: Seq[File],
 
 object LogManager {
 
-  val RecoveryPointCheckpointFile = "recovery-point-offset-checkpoint"
-  val LogStartOffsetCheckpointFile = "log-start-offset-checkpoint"
   val ProducerIdExpirationCheckIntervalMs = 10 * 60 * 1000
 
   def apply(config: KafkaConfig,
             initialOfflineDirs: Seq[String],
-            zkUtils: KafkaControllerZkUtils,
+            zkUtils: ZkUtils,
             brokerState: BrokerState,
             kafkaScheduler: KafkaScheduler,
             time: Time,
@@ -897,8 +747,9 @@ object LogManager {
     val defaultProps = KafkaServer.copyKafkaConfigToLog(config)
     val defaultLogConfig = LogConfig(defaultProps)
 
-    val (topicConfigs, failed) = zkUtils.getLogConfigs(zkUtils.getAllTopicsInCluster, defaultProps)
-    if (!failed.isEmpty) throw failed.head._2
+    val topicConfigs = AdminUtils.fetchAllTopicConfigs(zkUtils).map { case (topic, configs) =>
+      topic -> LogConfig.fromProps(defaultProps, configs)
+    }
 
     // read the log configurations from zookeeper
     val cleanerConfig = CleanerConfig(numThreads = config.logCleanerThreads,
@@ -910,8 +761,8 @@ object LogManager {
       backOffMs = config.logCleanerBackoffMs,
       enableCleaner = config.logCleanerEnable)
 
-    new LogManager(logDirs = config.logDirs.map(new File(_).getAbsoluteFile),
-      initialOfflineDirs = initialOfflineDirs.map(new File(_).getAbsoluteFile),
+    new LogManager(logDirs = config.logDirs.map(new File(_)).toArray,
+      initialOfflineDirs = initialOfflineDirs.map(new File(_)).toArray,
       topicConfigs = topicConfigs,
       defaultConfig = defaultLogConfig,
       cleanerConfig = cleanerConfig,

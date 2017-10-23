@@ -16,9 +16,7 @@
  */
 package kafka.coordinator.transaction
 
-import java.util.concurrent.locks.ReentrantLock
-
-import kafka.utils.{CoreUtils, Logging, nonthreadsafe}
+import kafka.utils.{Logging, nonthreadsafe}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.record.RecordBatch
 
@@ -157,10 +155,6 @@ private[transaction] class TransactionMetadata(val transactionalId: String,
   // transit to, and for blocking future attempts to transit it again if it is not legal;
   // initialized as the same as the current state
   var pendingState: Option[TransactionState] = None
-
-  private[transaction] val lock = new ReentrantLock
-
-  def inLock[T](fun: => T): T = CoreUtils.inLock(lock)(fun)
 
   def addPartitions(partitions: collection.Set[TopicPartition]): Unit = {
     topicPartitions ++= partitions

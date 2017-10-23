@@ -18,7 +18,6 @@ package org.apache.kafka.streams.kstream.internals;
 
 import org.apache.kafka.common.serialization.Serde;
 import org.apache.kafka.common.serialization.Serdes;
-import org.apache.kafka.streams.Consumed;
 import org.apache.kafka.streams.StreamsBuilder;
 import org.apache.kafka.streams.StreamsBuilderTest;
 import org.apache.kafka.streams.kstream.KStream;
@@ -58,7 +57,7 @@ public class KStreamKTableLeftJoinTest {
     }
 
     @Test
-    public void testJoin() {
+    public void testJoin() throws Exception {
         StreamsBuilder builder = new StreamsBuilder();
 
         final int[] expectedKeys = new int[]{0, 1, 2, 3};
@@ -68,9 +67,8 @@ public class KStreamKTableLeftJoinTest {
         MockProcessorSupplier<Integer, String> processor;
 
         processor = new MockProcessorSupplier<>();
-        Consumed<Integer, String> consumed = Consumed.with(intSerde, stringSerde);
-        stream = builder.stream(topic1, consumed);
-        table = builder.table(topic2, consumed);
+        stream = builder.stream(intSerde, stringSerde, topic1);
+        table = builder.table(intSerde, stringSerde, topic2, "anyStoreName");
         stream.leftJoin(table, MockValueJoiner.TOSTRING_JOINER).process(processor);
 
         Collection<Set<String>> copartitionGroups = StreamsBuilderTest.getCopartitionedGroups(builder);
