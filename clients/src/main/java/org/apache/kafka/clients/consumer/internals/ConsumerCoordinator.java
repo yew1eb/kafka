@@ -316,7 +316,7 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
     }
 
     /**
-     * Return the time to the next needed invocation of {@link #poll(long)}.
+     * Return the time to the next needed invocation of {@link #poll(long, long)}.
      * @param now current time in milliseconds
      * @return the maximum time in milliseconds the caller should wait before the next invocation of poll()
      */

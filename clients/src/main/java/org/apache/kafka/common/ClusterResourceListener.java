@@ -16,6 +16,10 @@
  */
 package org.apache.kafka.common;
 
+import org.apache.kafka.clients.consumer.ConsumerRecords;
+import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.clients.producer.RecordMetadata;
+
 /**
  * A callback interface that users can implement when they wish to get notified about changes in the Cluster metadata.
  * <p>
